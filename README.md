@@ -1,2 +1,1 @@
-# EdgeFinder
-Sports EV FInder
+# MLB-expected-value
