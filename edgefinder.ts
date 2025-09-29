@@ -379,7 +379,33 @@ function processOddsData(oddsData: any[]): { evOpportunities: EVOpportunity[]; a
  */
 function generateMockProps(): { players: PlayerData[] } {
   const fixtures = getTestFixtures();
-  return fixtures.props_sample || { players: [] };
+  const propsSample = fixtures.props_sample || { players: [] };
+  
+  // Extract all individual props from all players and flatten into a single array
+  const allProps: any[] = [];
+  
+  if (propsSample.players) {
+    propsSample.players.forEach((player: any) => {
+      if (player.props && Array.isArray(player.props)) {
+        player.props.forEach((prop: any) => {
+          allProps.push({
+            ...prop,
+            playerId: player.id,
+            playerName: player.name,
+            playerTeam: player.team,
+            playerPosition: player.position,
+            playerHeadshot: player.headshot,
+            playerRecentForm: player.recentForm
+          });
+        });
+      }
+    });
+  }
+  
+  return { 
+    players: propsSample.players || [],
+    props: allProps
+  };
 }
 
 // ====== Test Fixtures ======================================================
