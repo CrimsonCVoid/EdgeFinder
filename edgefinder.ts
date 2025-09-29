@@ -12,24 +12,25 @@ console.log('ODDS_API_KEY length:', (process.env.ODDS_API_KEY || '').length);
 console.log('ODDS_API_KEY value:', process.env.ODDS_API_KEY ? 'SET' : 'NOT SET');
 
 /**
- * EdgeFinder Pro - Production EV & Arbitrage Suite
+ * EdgeFinder Pro - Complete OddsJam Clone
  * 
- * A production-ready, idiot-proof yet pro-grade EV/arbitrage web app that:
+ * A complete OddsJam-style platform with identical layout and features:
  * - Detects positive expected value (+EV) opportunities
  * - Identifies arbitrage opportunities across sportsbooks
  * - Uses Pinnacle as baseline for fair odds calculation
- * - Provides advanced pricing, props with player stats, real-time line movement
- * - Includes market grouping and fully interactive controls
+ * - Player props with photos, stats, and Z-score analysis
+ * - Line movement tracking and steam detection
+ * - Professional stake calculators and educational content
  *
  * Endpoints:
  *   GET /health
+ *   GET /config
  *   GET /api/odds/:sport
  *   GET /api/ev/:sport
  *   GET /api/arbitrage/:sport
  *   GET /api/props/:sport
  *   GET /api/movement/:sport
  *   GET /fixtures (test data)
- *   GET /config (client configuration)
  *
  * Features:
  *   - Real-time odds from 40+ sportsbooks via The Odds API
