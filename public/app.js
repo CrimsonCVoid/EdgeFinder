@@ -1,144 +1,267 @@
-// EdgeFinder EV Engine - Frontend JavaScript
-class EdgeFinderApp {
+// EdgeFinder Pro - Modern Sports Analytics Dashboard
+class EdgeFinderPro {
     constructor() {
         this.baseURL = window.location.origin;
+        this.cache = new Map();
+        this.currentSection = 'dashboard';
+        this.animationObserver = null;
         this.init();
     }
 
-    init() {
+    async init() {
+        this.showLoadingScreen();
+        await this.initializeApp();
         this.setupEventListeners();
+        this.setupAnimations();
+        this.checkConnection();
+        this.hideLoadingScreen();
+    }
+
+    showLoadingScreen() {
+        const loadingScreen = document.getElementById('loadingScreen');
+        loadingScreen.classList.remove('hidden');
+    }
+
+    async hideLoadingScreen() {
+        await new Promise(resolve => setTimeout(resolve, 1500)); // Minimum loading time
+        const loadingScreen = document.getElementById('loadingScreen');
+        const app = document.getElementById('app');
+        
+        loadingScreen.classList.add('hidden');
+        app.classList.remove('hidden');
+    }
+
+    async initializeApp() {
+        // Initialize dashboard stats
+        await this.updateDashboardStats();
+        
+        // Load initial data
         this.loadDashboard();
     }
 
     setupEventListeners() {
         // Navigation
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                this.switchTab(e.target.dataset.tab);
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const section = e.currentTarget.dataset.section;
+                this.switchSection(section);
             });
         });
 
-        // Odds functionality
-        document.getElementById('fetch-odds')?.addEventListener('click', () => {
-            this.fetchOdds();
+        // League cards
+        document.querySelectorAll('.league-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                const league = e.currentTarget.dataset.league;
+                this.selectLeague(league);
+            });
         });
 
-        // EV Calculator
-        document.getElementById('calculate-ev')?.addEventListener('click', () => {
-            this.calculateEV();
-        });
+        // Controls
+        this.setupControlListeners();
+        
+        // Modal
+        this.setupModalListeners();
 
-        // Prior weight slider
-        const priorSlider = document.getElementById('prior-weight');
-        const priorValue = document.getElementById('prior-weight-value');
-        if (priorSlider && priorValue) {
-            priorSlider.addEventListener('input', (e) => {
-                priorValue.textContent = e.target.value;
+        // Range input
+        const priorWeight = document.getElementById('priorWeight');
+        const priorWeightValue = document.getElementById('priorWeightValue');
+        if (priorWeight && priorWeightValue) {
+            priorWeight.addEventListener('input', (e) => {
+                priorWeightValue.textContent = e.target.value;
             });
         }
+    }
 
-        // Stats functionality
-        document.getElementById('fetch-stats')?.addEventListener('click', () => {
-            this.fetchStats();
-        });
+    setupControlListeners() {
+        // Odds controls
+        const fetchOddsBtn = document.getElementById('fetchOdds');
+        if (fetchOddsBtn) {
+            fetchOddsBtn.addEventListener('click', () => this.fetchOdds());
+        }
 
-        // Team example buttons
+        // Players controls
+        const fetchPlayersBtn = document.getElementById('fetchPlayers');
+        if (fetchPlayersBtn) {
+            fetchPlayersBtn.addEventListener('click', () => this.fetchPlayers());
+        }
+
+        // Team buttons
         document.querySelectorAll('.team-btn').forEach(btn => {
             btn.addEventListener('click', (e) => {
-                const league = e.target.dataset.league;
-                const id = e.target.dataset.id;
-                document.getElementById('stats-league').value = league;
-                document.getElementById('team-id').value = id;
-                this.fetchStats();
+                const league = e.currentTarget.dataset.league;
+                const id = e.currentTarget.dataset.id;
+                this.selectTeam(league, id);
             });
+        });
+
+        // Analytics controls
+        const calculateEVBtn = document.getElementById('calculateEV');
+        if (calculateEVBtn) {
+            calculateEVBtn.addEventListener('click', () => this.calculateEV());
+        }
+    }
+
+    setupModalListeners() {
+        const modal = document.getElementById('playerModal');
+        const closeBtn = modal.querySelector('.modal-close');
+        
+        closeBtn.addEventListener('click', () => this.closeModal());
+        
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                this.closeModal();
+            }
         });
     }
 
-    switchTab(tabName) {
-        // Update navigation
-        document.querySelectorAll('.nav-btn').forEach(btn => {
-            btn.classList.remove('active');
+    setupAnimations() {
+        // Intersection Observer for scroll animations
+        this.animationObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.style.animationPlayState = 'running';
+                }
+            });
+        }, { threshold: 0.1 });
+
+        // Observe animated elements
+        document.querySelectorAll('[data-animate]').forEach(el => {
+            this.animationObserver.observe(el);
         });
-        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    }
+
+    switchSection(sectionName) {
+        // Update navigation
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.remove('active');
+        });
+        document.querySelector(`[data-section="${sectionName}"]`).classList.add('active');
 
         // Update content
-        document.querySelectorAll('.tab-content').forEach(content => {
-            content.classList.remove('active');
+        document.querySelectorAll('.section').forEach(section => {
+            section.classList.remove('active');
         });
-        document.getElementById(tabName).classList.add('active');
+        document.getElementById(sectionName).classList.add('active');
 
-        // Load tab-specific data
-        if (tabName === 'dashboard') {
-            this.loadDashboard();
+        this.currentSection = sectionName;
+
+        // Load section-specific data
+        this.loadSectionData(sectionName);
+    }
+
+    loadSectionData(section) {
+        switch (section) {
+            case 'dashboard':
+                this.loadDashboard();
+                break;
+            case 'odds':
+                // Odds data loaded on demand
+                break;
+            case 'players':
+                // Players data loaded on demand
+                break;
+            case 'analytics':
+                // Analytics data loaded on demand
+                break;
         }
     }
 
     async loadDashboard() {
+        await this.updateDashboardStats();
+    }
+
+    async updateDashboardStats() {
         try {
-            const response = await fetch(`${this.baseURL}/health`);
-            const data = await response.json();
+            const response = await this.fetchWithCache('/health', 30000); // 30s cache
             
-            this.updateServiceStatus(data);
-            this.updateAPIStatus(data.services);
+            // Update connection status
+            this.updateConnectionStatus(response.ok);
+            
+            if (response.ok) {
+                const data = await response.json();
+                
+                // Update stats (mock data for now)
+                document.getElementById('totalGames').textContent = '12';
+                document.getElementById('positiveEV').textContent = '3';
+                document.getElementById('totalBooks').textContent = '40+';
+                document.getElementById('totalLeagues').textContent = '8';
+            }
         } catch (error) {
-            console.error('Failed to load dashboard:', error);
-            this.updateServiceStatus({ ok: false, error: error.message });
+            console.error('Failed to update dashboard stats:', error);
+            this.updateConnectionStatus(false);
         }
     }
 
-    updateServiceStatus(data) {
-        const statusElement = document.getElementById('service-status');
+    updateConnectionStatus(isConnected) {
+        const statusElement = document.getElementById('connectionStatus');
         const dot = statusElement.querySelector('.status-dot');
-        const text = statusElement.querySelector('span:last-child');
+        const text = statusElement.querySelector('span');
 
-        if (data.ok) {
-            dot.className = 'status-dot';
-            dot.style.background = '#00ff88';
-            text.textContent = 'Online';
+        if (isConnected) {
+            dot.className = 'status-dot connected';
+            text.textContent = 'Connected';
         } else {
             dot.className = 'status-dot error';
-            text.textContent = 'Offline';
+            text.textContent = 'Connection Error';
         }
     }
 
-    updateAPIStatus(services) {
-        const oddsStatus = document.getElementById('odds-api-status');
-        
-        if (services.odds_api) {
-            oddsStatus.className = 'status-badge success';
-            oddsStatus.textContent = '✓ Active';
-        } else {
-            oddsStatus.className = 'status-badge error';
-            oddsStatus.textContent = '✗ Missing Key';
+    async checkConnection() {
+        try {
+            const response = await fetch(`${this.baseURL}/health`);
+            this.updateConnectionStatus(response.ok);
+        } catch (error) {
+            this.updateConnectionStatus(false);
         }
+    }
+
+    selectLeague(league) {
+        // Update odds section
+        document.getElementById('oddsLeague').value = league;
+        
+        // Switch to odds section
+        this.switchSection('odds');
+        
+        // Auto-fetch odds
+        setTimeout(() => this.fetchOdds(), 500);
+    }
+
+    selectTeam(league, id) {
+        document.getElementById('playersLeague').value = league;
+        document.getElementById('teamId').value = id;
+        
+        // Switch to players section
+        this.switchSection('players');
+        
+        // Auto-fetch players
+        setTimeout(() => this.fetchPlayers(), 500);
     }
 
     async fetchOdds() {
-        const league = document.getElementById('league-select').value;
-        const market = document.getElementById('market-select').value;
-        const resultsContainer = document.getElementById('odds-results');
+        const league = document.getElementById('oddsLeague').value;
+        const market = document.getElementById('oddsMarket').value;
+        const resultsContainer = document.getElementById('oddsResults');
 
-        // Show loading
-        resultsContainer.innerHTML = this.getLoadingHTML();
+        this.showLoading(resultsContainer);
 
         try {
             const response = await fetch(`${this.baseURL}/odds/${league}?markets=${market}&region=us`);
             const data = await response.json();
 
             if (data.error) {
-                resultsContainer.innerHTML = this.getErrorHTML(data.error);
+                this.showError(resultsContainer, data.error);
                 return;
             }
 
             if (!data.data || data.data.length === 0) {
-                resultsContainer.innerHTML = this.getPlaceholderHTML('No odds available', 'Try a different league or check back later');
+                this.showPlaceholder(resultsContainer, 'No odds available', 'Try a different league or check back later');
                 return;
             }
 
             this.displayOdds(data.data, resultsContainer);
         } catch (error) {
             console.error('Failed to fetch odds:', error);
-            resultsContainer.innerHTML = this.getErrorHTML('Failed to fetch odds. Please try again.');
+            this.showError(resultsContainer, 'Failed to fetch odds. Please try again.');
         }
     }
 
@@ -147,7 +270,7 @@ class EdgeFinderApp {
         
         oddsData.forEach(event => {
             html += `
-                <div class="odds-event">
+                <div class="odds-event" data-animate="fadeInUp">
                     <div class="event-header">
                         <h3>${event.home_team} vs ${event.away_team}</h3>
                         <p class="event-time">${new Date(event.commence_time).toLocaleString()}</p>
@@ -189,22 +312,158 @@ class EdgeFinderApp {
 
         html += '</div>';
         container.innerHTML = html;
+        
+        // Re-observe new animated elements
+        container.querySelectorAll('[data-animate]').forEach(el => {
+            this.animationObserver.observe(el);
+        });
     }
 
-    async calculateEV() {
-        const league = document.getElementById('ev-league').value;
-        const eventId = document.getElementById('event-id').value.trim();
-        const devigMethod = document.getElementById('devig-method').value;
-        const priorWeight = document.getElementById('prior-weight').value;
-        const resultsContainer = document.getElementById('ev-results');
+    async fetchPlayers() {
+        const league = document.getElementById('playersLeague').value;
+        const teamId = document.getElementById('teamId').value.trim();
+        const resultsContainer = document.getElementById('playersResults');
 
-        if (!eventId) {
-            resultsContainer.innerHTML = this.getErrorHTML('Please enter an Event ID');
+        if (!teamId) {
+            this.showError(resultsContainer, 'Please enter a Team/Player ID');
             return;
         }
 
-        // Show loading
-        resultsContainer.innerHTML = this.getLoadingHTML();
+        this.showLoading(resultsContainer);
+
+        try {
+            const response = await fetch(`${this.baseURL}/stats/${league}/${teamId}`);
+            const data = await response.json();
+
+            if (data.error) {
+                this.showError(resultsContainer, data.error);
+                return;
+            }
+
+            this.displayPlayers(data.data, resultsContainer, league);
+        } catch (error) {
+            console.error('Failed to fetch players:', error);
+            this.showError(resultsContainer, 'Failed to fetch players. Please try again.');
+        }
+    }
+
+    displayPlayers(playersData, container, league) {
+        if (league === 'mlb' && playersData.teams) {
+            // Handle MLB team data
+            const team = playersData.teams[0];
+            this.displayMLBTeam(team, container);
+        } else if (playersData.roster) {
+            // Handle roster data
+            this.displayRoster(playersData.roster, container);
+        } else {
+            // Handle raw stats data
+            this.displayRawStats(playersData, container);
+        }
+    }
+
+    displayMLBTeam(team, container) {
+        let html = `
+            <div class="team-header" data-animate="fadeInUp">
+                <h2>${team.name}</h2>
+                <p>${team.division?.name || ''} | ${team.league?.name || ''}</p>
+            </div>
+            <div class="players-grid">
+        `;
+
+        // Mock player data since we don't have roster in team endpoint
+        const mockPlayers = [
+            { id: 1, name: 'Player 1', position: 'P', number: '1' },
+            { id: 2, name: 'Player 2', position: 'C', number: '2' },
+            { id: 3, name: 'Player 3', position: '1B', number: '3' },
+        ];
+
+        mockPlayers.forEach((player, index) => {
+            const photoUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/w_300,h_300,q_auto:best,f_auto/v1/people/${player.id}/headshot/67/current`;
+            
+            html += `
+                <div class="player-card" data-animate="fadeInUp" style="animation-delay: ${index * 0.1}s" onclick="edgeFinderPro.showPlayerModal(${player.id}, '${player.name}')">
+                    <img class="player-photo" src="${photoUrl}" alt="${player.name}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDMwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjMUExRjJFIi8+CjxjaXJjbGUgY3g9IjE1MCIgY3k9IjEyMCIgcj0iNDAiIGZpbGw9IiM2QjcyODAiLz4KPHBhdGggZD0iTTEwMCAyMDBDMTAwIDE3Mi4zODYgMTIyLjM4NiAxNTAgMTUwIDE1MFMyMDAgMTcyLjM4NiAyMDAgMjAwVjI1MEgxMDBWMjAwWiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K'">
+                    <div class="player-info">
+                        <div class="player-number">#${player.number}</div>
+                        <div class="player-name">${player.name}</div>
+                        <div class="player-position">${player.position}</div>
+                        <div class="player-stats">
+                            <span>AVG: .285</span>
+                            <span>HR: 12</span>
+                            <span>RBI: 45</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+        
+        // Re-observe new animated elements
+        container.querySelectorAll('[data-animate]').forEach(el => {
+            this.animationObserver.observe(el);
+        });
+    }
+
+    displayRoster(roster, container) {
+        let html = '<div class="players-grid">';
+        
+        roster.forEach((player, index) => {
+            const photoUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/w_300,h_300,q_auto:best,f_auto/v1/people/${player.person.id}/headshot/67/current`;
+            
+            html += `
+                <div class="player-card" data-animate="fadeInUp" style="animation-delay: ${index * 0.1}s" onclick="edgeFinderPro.showPlayerModal(${player.person.id}, '${player.person.fullName}')">
+                    <img class="player-photo" src="${photoUrl}" alt="${player.person.fullName}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDMwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjMUExRjJFIi8+CjxjaXJjbGUgY3g9IjE1MCIgY3k9IjEyMCIgcj0iNDAiIGZpbGw9IiM2QjcyODAiLz4KPHBhdGggZD0iTTEwMCAyMDBDMTAwIDE3Mi4zODYgMTIyLjM4NiAxNTAgMTUwIDE1MFMyMDAgMTcyLjM4NiAyMDAgMjAwVjI1MEgxMDBWMjAwWiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K'">
+                    <div class="player-info">
+                        <div class="player-number">#${player.jerseyNumber || '—'}</div>
+                        <div class="player-name">${player.person.fullName}</div>
+                        <div class="player-position">${player.position.name}</div>
+                        <div class="player-stats">
+                            <span>Click for stats</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+        
+        // Re-observe new animated elements
+        container.querySelectorAll('[data-animate]').forEach(el => {
+            this.animationObserver.observe(el);
+        });
+    }
+
+    displayRawStats(statsData, container) {
+        const html = `
+            <div class="stats-display" data-animate="fadeInUp">
+                <h3>Statistics Data</h3>
+                <pre class="stats-json">${JSON.stringify(statsData, null, 2)}</pre>
+            </div>
+        `;
+        container.innerHTML = html;
+        
+        // Re-observe new animated elements
+        container.querySelectorAll('[data-animate]').forEach(el => {
+            this.animationObserver.observe(el);
+        });
+    }
+
+    async calculateEV() {
+        const league = document.getElementById('evLeague').value;
+        const eventId = document.getElementById('eventId').value.trim();
+        const devigMethod = document.getElementById('devigMethod').value;
+        const priorWeight = document.getElementById('priorWeight').value;
+        const resultsContainer = document.getElementById('analyticsResults');
+
+        if (!eventId) {
+            this.showError(resultsContainer, 'Please enter an Event ID');
+            return;
+        }
+
+        this.showLoading(resultsContainer);
 
         try {
             const url = `${this.baseURL}/ev/${league}/${eventId}?devig=${devigMethod}&prior_weight=${priorWeight}`;
@@ -212,20 +471,20 @@ class EdgeFinderApp {
             const data = await response.json();
 
             if (data.error) {
-                resultsContainer.innerHTML = this.getErrorHTML(data.error);
+                this.showError(resultsContainer, data.error);
                 return;
             }
 
             this.displayEVResults(data, resultsContainer);
         } catch (error) {
             console.error('Failed to calculate EV:', error);
-            resultsContainer.innerHTML = this.getErrorHTML('Failed to calculate EV. Please try again.');
+            this.showError(resultsContainer, 'Failed to calculate EV. Please try again.');
         }
     }
 
     displayEVResults(evData, container) {
         let html = `
-            <div class="ev-results">
+            <div class="ev-results" data-animate="fadeInUp">
                 <div class="ev-header">
                     <h3>Expected Value Analysis</h3>
                     <p>Event: ${evData.eventId} | League: ${evData.league.toUpperCase()}</p>
@@ -236,7 +495,7 @@ class EdgeFinderApp {
             html += `
                 <div class="market-section">
                     <h4>${this.formatMarketName(marketKey)}</h4>
-                    <table class="results-table">
+                    <table class="analytics-table">
                         <thead>
                             <tr>
                                 <th>Bookmaker</th>
@@ -277,52 +536,100 @@ class EdgeFinderApp {
 
         html += '</div>';
         container.innerHTML = html;
+        
+        // Re-observe new animated elements
+        container.querySelectorAll('[data-animate]').forEach(el => {
+            this.animationObserver.observe(el);
+        });
     }
 
-    async fetchStats() {
-        const league = document.getElementById('stats-league').value;
-        const teamId = document.getElementById('team-id').value.trim();
-        const resultsContainer = document.getElementById('stats-results');
-
-        if (!teamId) {
-            resultsContainer.innerHTML = this.getErrorHTML('Please enter a Team/Player ID');
-            return;
-        }
-
-        // Show loading
-        resultsContainer.innerHTML = this.getLoadingHTML();
-
-        try {
-            const response = await fetch(`${this.baseURL}/stats/${league}/${teamId}`);
-            const data = await response.json();
-
-            if (data.error) {
-                resultsContainer.innerHTML = this.getErrorHTML(data.error);
-                return;
-            }
-
-            this.displayStats(data.data, resultsContainer, league);
-        } catch (error) {
-            console.error('Failed to fetch stats:', error);
-            resultsContainer.innerHTML = this.getErrorHTML('Failed to fetch stats. Please try again.');
-        }
-    }
-
-    displayStats(statsData, container, league) {
-        let html = `
-            <div class="stats-results">
-                <div class="stats-header">
-                    <h3>${league.toUpperCase()} Statistics</h3>
-                </div>
-                <div class="stats-content">
-                    <pre class="stats-json">${JSON.stringify(statsData, null, 2)}</pre>
+    showPlayerModal(playerId, playerName) {
+        const modal = document.getElementById('playerModal');
+        const content = document.getElementById('playerModalContent');
+        
+        content.innerHTML = `
+            <div class="player-modal-header">
+                <h2>${playerName}</h2>
+                <p>Player ID: ${playerId}</p>
+            </div>
+            <div class="player-modal-stats">
+                <div class="loading">
+                    <div class="loading-spinner-small"></div>
+                    <p>Loading player statistics...</p>
                 </div>
             </div>
         `;
-        container.innerHTML = html;
+        
+        modal.classList.add('active');
+        
+        // Load player stats
+        this.loadPlayerStats(playerId, content);
     }
 
-    // Utility functions
+    async loadPlayerStats(playerId, container) {
+        try {
+            // Mock player stats for now
+            const mockStats = {
+                season: {
+                    games: 145,
+                    avg: '.285',
+                    hits: 156,
+                    runs: 78,
+                    rbi: 89,
+                    hr: 23
+                }
+            };
+
+            const statsHtml = `
+                <div class="player-modal-header">
+                    <h2>Player Statistics</h2>
+                </div>
+                <div class="player-stats-grid">
+                    <div class="stat-item">
+                        <span class="stat-label">Games</span>
+                        <span class="stat-value">${mockStats.season.games}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">AVG</span>
+                        <span class="stat-value">${mockStats.season.avg}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Hits</span>
+                        <span class="stat-value">${mockStats.season.hits}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Runs</span>
+                        <span class="stat-value">${mockStats.season.runs}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">RBI</span>
+                        <span class="stat-value">${mockStats.season.rbi}</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">HR</span>
+                        <span class="stat-value">${mockStats.season.hr}</span>
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = statsHtml;
+        } catch (error) {
+            console.error('Failed to load player stats:', error);
+            container.innerHTML = `
+                <div class="error-message">
+                    <h3>Error</h3>
+                    <p>Failed to load player statistics</p>
+                </div>
+            `;
+        }
+    }
+
+    closeModal() {
+        const modal = document.getElementById('playerModal');
+        modal.classList.remove('active');
+    }
+
+    // Utility methods
     formatOdds(americanOdds) {
         const odds = parseInt(americanOdds);
         return odds > 0 ? `+${odds}` : `${odds}`;
@@ -337,136 +644,175 @@ class EdgeFinderApp {
         return names[marketKey] || marketKey;
     }
 
-    getLoadingHTML() {
-        return `
+    showLoading(container) {
+        container.innerHTML = `
             <div class="loading">
-                <div class="spinner"></div>
+                <div class="loading-spinner-small"></div>
                 <p>Loading...</p>
             </div>
         `;
     }
 
-    getErrorHTML(message) {
-        return `
+    showError(container, message) {
+        container.innerHTML = `
             <div class="error-message">
+                <i class="fas fa-exclamation-triangle" style="font-size: 2rem; color: var(--error); margin-bottom: 1rem;"></i>
                 <h3>Error</h3>
                 <p>${message}</p>
             </div>
         `;
     }
 
-    getPlaceholderHTML(title, message) {
-        return `
+    showPlaceholder(container, title, message) {
+        container.innerHTML = `
             <div class="placeholder">
-                <div class="placeholder-icon">📊</div>
+                <i class="fas fa-info-circle placeholder-icon"></i>
                 <h3>${title}</h3>
                 <p>${message}</p>
             </div>
         `;
     }
+
+    async fetchWithCache(url, cacheTime = 60000) {
+        const cacheKey = url;
+        const cached = this.cache.get(cacheKey);
+        
+        if (cached && Date.now() - cached.timestamp < cacheTime) {
+            return cached.response;
+        }
+        
+        const response = await fetch(`${this.baseURL}${url}`);
+        
+        if (response.ok) {
+            this.cache.set(cacheKey, {
+                response: response.clone(),
+                timestamp: Date.now()
+            });
+        }
+        
+        return response;
+    }
 }
 
-// Initialize the app when DOM is loaded
+// Initialize the app
+let edgeFinderPro;
 document.addEventListener('DOMContentLoaded', () => {
-    new EdgeFinderApp();
+    edgeFinderPro = new EdgeFinderPro();
 });
 
-// Add CSS for odds display
+// Add additional CSS for modal stats
 const additionalCSS = `
-.odds-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 2rem;
-}
-
-.odds-event {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 12px;
-    padding: 1.5rem;
-}
-
-.event-header {
-    margin-bottom: 1rem;
+.player-modal-header {
     text-align: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-primary);
 }
 
-.event-header h3 {
-    color: #00d4ff;
+.player-modal-header h2 {
+    color: var(--primary);
+    font-size: 1.8rem;
     margin-bottom: 0.5rem;
 }
 
-.event-time {
-    color: #a0a9c0;
-    font-size: 0.9rem;
-}
-
-.bookmakers-grid {
+.player-stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 1rem;
 }
 
-.bookmaker-card {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 8px;
+.stat-item {
+    background: var(--bg-tertiary);
     padding: 1rem;
+    border-radius: var(--radius-md);
+    text-align: center;
+    border: 1px solid var(--border-primary);
+    transition: all var(--transition-normal);
 }
 
-.bookmaker-card h4 {
-    color: #00ff88;
-    margin-bottom: 0.75rem;
+.stat-item:hover {
+    border-color: var(--primary);
+    transform: translateY(-2px);
+}
+
+.stat-label {
+    display: block;
     font-size: 0.9rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    font-weight: 500;
 }
 
-.outcomes {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
+.stat-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary);
 }
 
-.outcome {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem;
-    background: rgba(255, 255, 255, 0.05);
-    border-radius: 4px;
+.error-message {
+    text-align: center;
+    padding: 2rem;
+    color: var(--error);
 }
 
-.outcome .team {
-    font-size: 0.9rem;
-    color: #ffffff;
-}
-
-.outcome .odds {
-    font-weight: 600;
-    color: #00d4ff;
+.error-message h3 {
+    margin-bottom: 0.5rem;
+    font-size: 1.2rem;
 }
 
 .stats-json {
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--bg-tertiary);
     padding: 1rem;
-    border-radius: 8px;
-    color: #ffffff;
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
     font-size: 0.9rem;
     overflow-x: auto;
     white-space: pre-wrap;
     word-wrap: break-word;
+    border: 1px solid var(--border-primary);
+}
+
+.stats-display h3 {
+    color: var(--primary);
+    margin-bottom: 1rem;
+    text-align: center;
+}
+
+.team-header {
+    text-align: center;
+    margin-bottom: 2rem;
+    padding: 2rem;
+    background: var(--bg-card);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-primary);
+}
+
+.team-header h2 {
+    color: var(--primary);
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+}
+
+.team-header p {
+    color: var(--text-secondary);
+    font-size: 1.1rem;
 }
 
 .ev-results {
-    color: #ffffff;
+    padding: 2rem;
 }
 
 .ev-header {
     text-align: center;
     margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border-primary);
 }
 
 .ev-header h3 {
-    color: #00d4ff;
+    color: var(--primary);
+    font-size: 1.8rem;
     margin-bottom: 0.5rem;
 }
 
@@ -475,9 +821,10 @@ const additionalCSS = `
 }
 
 .market-section h4 {
-    color: #00ff88;
+    color: var(--secondary);
+    font-size: 1.3rem;
     margin-bottom: 1rem;
-    font-size: 1.2rem;
+    text-align: center;
 }
 `;
 

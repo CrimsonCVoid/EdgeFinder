@@ -4,6 +4,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Import configuration
+import * as config from './config.js';
+
 /**
  * EdgeFinder EV Engine (single-file service)
  * - Odds: The Odds API (per-bookmaker)
@@ -597,12 +600,24 @@ const server = http.createServer(async (req, res) => {
       return serveStaticFile(res, filePath);
     }
 
+    // Configuration endpoint
+    if (req.method === "GET" && path === "/config") {
+      const clientConfig = {
+        leagues: config.leagues || {},
+        markets: config.markets || {},
+        features: config.features || {},
+        ui: config.ui || {}
+      };
+      return sendJSON(res, 200, clientConfig);
+    }
+
     // Health check endpoint
     if (req.method === "GET" && path === "/health") {
       const status = {
         ok: true,
         timestamp: new Date().toISOString(),
         version: "1.0.0",
+        environment: process.env.NODE_ENV || "development",
         services: {
           odds_api: !!ODDS_API_KEY,
           betfair: !!(BETFAIR_APP_KEY && BETFAIR_USERNAME && BETFAIR_PASSWORD),
@@ -610,7 +625,8 @@ const server = http.createServer(async (req, res) => {
           mlb_stats: true, // Always available
           nhl_api: true,   // Always available
           nba_stats: true  // Available but may be rate limited
-        }
+        },
+        features: config.features || {}
       };
       return sendJSON(res, 200, status);
     }
