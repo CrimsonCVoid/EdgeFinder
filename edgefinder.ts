@@ -4,6 +4,13 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+// Debug environment loading
+console.log('🔍 Environment Debug:');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('ODDS_API_KEY exists:', !!process.env.ODDS_API_KEY);
+console.log('ODDS_API_KEY length:', (process.env.ODDS_API_KEY || '').length);
+console.log('ODDS_API_KEY value:', process.env.ODDS_API_KEY ? 'SET' : 'NOT SET');
+
 /**
  * EdgeFinder Pro - Production EV & Arbitrage Suite
  * 
@@ -53,13 +60,6 @@ const BASELINE_BOOK = process.env.BASELINE_BOOK || config.env?.BASELINE_BOOK || 
 
 // External base URLs
 const ODDS_API = "https://api.the-odds-api.com/v4";
-
-// Debug: Log environment variables
-console.log('🔍 EdgeFinder Pro Suite Configuration:');
-console.log('ODDS_API_KEY:', ODDS_API_KEY ? '✅ Configured' : '❌ Missing');
-console.log('PLAYER_API_KEY:', PLAYER_API_KEY ? '✅ Configured' : '❌ Missing');
-console.log('BASELINE_BOOK:', BASELINE_BOOK);
-console.log('FEATURES:', Object.keys(config.features || {}).filter(k => config.features[k]).join(', '));
 
 // Type definitions for better code clarity
 interface APIResponse {
@@ -387,94 +387,7 @@ function generateMockProps(): PlayerProp[] {
  * Get test fixtures for development
  */
 function getTestFixtures() {
-  return {
-    odds: [
-      {
-        id: 'test_mlb_1',
-        sport_title: 'MLB',
-        home_team: 'New York Yankees',
-        away_team: 'Boston Red Sox',
-        commence_time: '2024-04-15T19:10:00Z',
-        bookmakers: [
-          {
-            key: 'pinnacle',
-            title: 'Pinnacle',
-            markets: [{
-              key: 'h2h',
-              outcomes: [
-                { name: 'New York Yankees', price: 1.95 },
-                { name: 'Boston Red Sox', price: 1.95 }
-              ]
-            }]
-          },
-          {
-            key: 'draftkings',
-            title: 'DraftKings',
-            markets: [{
-              key: 'h2h',
-              outcomes: [
-                { name: 'New York Yankees', price: 1.85 },
-                { name: 'Boston Red Sox', price: 2.10 }
-              ]
-            }]
-          },
-          {
-            key: 'fanduel',
-            title: 'FanDuel',
-            markets: [{
-              key: 'h2h',
-              outcomes: [
-                { name: 'New York Yankees', price: 2.20 },
-                { name: 'Boston Red Sox', price: 1.75 }
-              ]
-            }]
-          }
-        ]
-      },
-      {
-        id: 'test_nba_1',
-        sport_title: 'NBA',
-        home_team: 'Los Angeles Lakers',
-        away_team: 'Boston Celtics',
-        commence_time: '2024-04-15T20:00:00Z',
-        bookmakers: [
-          {
-            key: 'pinnacle',
-            title: 'Pinnacle',
-            markets: [{
-              key: 'h2h',
-              outcomes: [
-                { name: 'Los Angeles Lakers', price: 2.20 },
-                { name: 'Boston Celtics', price: 1.75 }
-              ]
-            }]
-          },
-          {
-            key: 'fanduel',
-            title: 'FanDuel',
-            markets: [{
-              key: 'h2h',
-              outcomes: [
-                { name: 'Los Angeles Lakers', price: 2.40 },
-                { name: 'Boston Celtics', price: 1.65 }
-              ]
-            }]
-          },
-          {
-            key: 'betmgm',
-            title: 'BetMGM',
-            markets: [{
-              key: 'h2h',
-              outcomes: [
-                { name: 'Los Angeles Lakers', price: 2.10 },
-                { name: 'Boston Celtics', price: 1.85 }
-              ]
-            }]
-          }
-        ]
-      }
-    ]
-  };
+  return config.fixtures || {};
 }
 
 
