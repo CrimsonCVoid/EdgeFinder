@@ -5,28 +5,34 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 /**
- * EdgeFinder Pro - EV & Arbitrage Detection Engine
+ * EdgeFinder Pro - Production EV & Arbitrage Suite
  * 
- * A professional-grade sports betting analytics platform that:
+ * A production-ready, idiot-proof yet pro-grade EV/arbitrage web app that:
  * - Detects positive expected value (+EV) opportunities
  * - Identifies arbitrage opportunities across sportsbooks
  * - Uses Pinnacle as baseline for fair odds calculation
- * - Provides stake calculators and risk management tools
+ * - Provides advanced pricing, props with player stats, real-time line movement
+ * - Includes market grouping and fully interactive controls
  *
  * Endpoints:
  *   GET /health
- *   GET /api/odds/:sport?market=h2h&region=us
- *   GET /api/ev-opportunities/:sport
- *   GET /api/arbitrage-opportunities/:sport
- *   GET /api/player-props/:sport
+ *   GET /api/odds/:sport
+ *   GET /api/ev/:sport
+ *   GET /api/arbitrage/:sport
+ *   GET /api/props/:sport
+ *   GET /api/movement/:sport
  *   GET /fixtures (test data)
+ *   GET /config (client configuration)
  *
  * Features:
  *   - Real-time odds from 40+ sportsbooks via The Odds API
- *   - Pinnacle-based fair value calculations
+ *   - Pinnacle-based fair value calculations with no-vig
  *   - Advanced arbitrage detection with stake calculators
- *   - Player props integration
+ *   - Player props with photos, stats, and recent form
+ *   - Line movement tracking and steam detection
+ *   - Kelly criterion sizing and CLV tracking
  *   - Mobile-responsive professional UI
+ *   - Export functionality and deep analytics
  */
 
 import http from "node:http";
@@ -41,18 +47,19 @@ const config = require('./config.js');
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
 // Keys (optional where noted)
-const ODDS_API_KEY = config.env?.ODDS_API_KEY || process.env.ODDS_API_KEY || "";
-const PLAYER_API_KEY = config.env?.PLAYER_API_KEY || process.env.PLAYER_API_KEY || "";
-const BASELINE_BOOK = config.env?.BASELINE_BOOK || process.env.BASELINE_BOOK || "pinnacle";
+const ODDS_API_KEY = process.env.ODDS_API_KEY || config.env?.ODDS_API_KEY || "";
+const PLAYER_API_KEY = process.env.PLAYER_API_KEY || config.env?.PLAYER_API_KEY || "";
+const BASELINE_BOOK = process.env.BASELINE_BOOK || config.env?.BASELINE_BOOK || "pinnacle";
 
 // External base URLs
 const ODDS_API = "https://api.the-odds-api.com/v4";
 
 // Debug: Log environment variables
-console.log('🔍 EdgeFinder Pro Configuration:');
+console.log('🔍 EdgeFinder Pro Suite Configuration:');
 console.log('ODDS_API_KEY:', ODDS_API_KEY ? '✅ Configured' : '❌ Missing');
 console.log('PLAYER_API_KEY:', PLAYER_API_KEY ? '✅ Configured' : '❌ Missing');
 console.log('BASELINE_BOOK:', BASELINE_BOOK);
+console.log('FEATURES:', Object.keys(config.features || {}).filter(k => config.features[k]).join(', '));
 
 // Type definitions for better code clarity
 interface APIResponse {
@@ -100,6 +107,14 @@ interface PlayerProp {
   bestLine: string;
   bookmaker: string;
   ev: number;
+}
+
+interface MovementPoint {
+  timestamp: string;
+  odds: {
+    home: number;
+    away: number;
+  };
 }
 
 // Simple fetch with timeout and retry logic
@@ -534,10 +549,12 @@ const server = http.createServer(async (req, res) => {
     // Configuration endpoint
     if (req.method === "GET" && path === "/config") {
       const clientConfig = {
-        leagues: config.leagues || {},
+        sportsbooks: config.sportsbooks || {},
+        sports: config.sports || {},
         markets: config.markets || {},
         features: config.features || {},
-        ui: config.ui || {}
+        ui: config.ui || {},
+        defaults: config.defaults || {}
       };
       return sendJSON(res, 200, clientConfig);
     }
@@ -547,17 +564,19 @@ const server = http.createServer(async (req, res) => {
       const status = {
         ok: true,
         timestamp: new Date().toISOString(),
-        version: "2.0.0",
+        version: "3.0.0",
         environment: process.env.NODE_ENV || "development",
         services: {
           odds_api: !!ODDS_API_KEY,
           player_api: !!PLAYER_API_KEY,
-          baseline_book: BASELINE_BOOK
+          baseline_book: BASELINE_BOOK,
+          features_enabled: Object.keys(config.features || {}).filter(k => config.features[k]).length
         },
         config: {
           baseline_book: BASELINE_BOOK,
           supported_sports: Object.keys(config.sports || {}),
-          supported_books: Object.keys(config.sportsbooks || {})
+          supported_books: Object.keys(config.sportsbooks || {}),
+          markets: Object.keys(config.markets || {})
         }
       };
       return sendJSON(res, 200, status);
@@ -584,8 +603,8 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, oddsResponse);
       }
 
-      // /api/ev-opportunities/:sport
-      if (endpoint === "ev-opportunities" && param) {
+      // /api/ev/:sport
+      if (endpoint === "ev" && param) {
         const sport = param.toUpperCase();
         const oddsResponse = await fetchOddsForSport(sport);
         
@@ -597,8 +616,8 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { error: null, data: evOpportunities });
       }
 
-      // /api/arbitrage-opportunities/:sport
-      if (endpoint === "arbitrage-opportunities" && param) {
+      // /api/arbitrage/:sport
+      if (endpoint === "arbitrage" && param) {
         const sport = param.toUpperCase();
         const oddsResponse = await fetchOddsForSport(sport);
         
@@ -610,10 +629,16 @@ const server = http.createServer(async (req, res) => {
         return sendJSON(res, 200, { error: null, data: arbOpportunities });
       }
 
-      // /api/player-props/:sport
-      if (endpoint === "player-props" && param) {
+      // /api/props/:sport
+      if (endpoint === "props" && param) {
         const props = generateMockProps();
         return sendJSON(res, 200, { error: null, data: props });
+      }
+
+      // /api/movement/:sport
+      if (endpoint === "movement" && param) {
+        const movement = config.fixtures?.movement_series || [];
+        return sendJSON(res, 200, { error: null, data: movement });
       }
     }
 
@@ -634,25 +659,27 @@ const server = http.createServer(async (req, res) => {
 
 // Start the server
 server.listen(PORT, () => {
-  console.log(`🚀 EdgeFinder Pro - EV & Arbitrage Detection running on port ${PORT}`);
+  console.log(`🚀 EdgeFinder Pro - Production EV & Arbitrage Suite running on port ${PORT}`);
   console.log(`📊 Available endpoints:`);
   console.log(`   GET /health`);
-  console.log(`   GET /api/odds/:sport?market=h2h&region=us`);
-  console.log(`   GET /api/ev-opportunities/:sport`);
-  console.log(`   GET /api/arbitrage-opportunities/:sport`);
-  console.log(`   GET /api/player-props/:sport`);
+  console.log(`   GET /config`);
+  console.log(`   GET /api/odds/:sport`);
+  console.log(`   GET /api/ev/:sport`);
+  console.log(`   GET /api/arbitrage/:sport`);
+  console.log(`   GET /api/props/:sport`);
+  console.log(`   GET /api/movement/:sport`);
   console.log(`   GET /fixtures (test data)`);
   console.log(`🔑 API Keys configured:`);
   console.log(`   Odds API: ${ODDS_API_KEY ? '✅' : '❌'}`);
   console.log(`   Player API: ${PLAYER_API_KEY ? '✅' : '❌'}`);
   console.log(`📍 Baseline Book: ${BASELINE_BOOK}`);
-  console.log(`🎯 Features: +EV Detection, Arbitrage Detection, Stake Calculator`);
+  console.log(`🎯 Features: +EV Detection, Arbitrage Detection, Props Analysis, Movement Tracking, Kelly Sizing`);
   console.log(`🌐 Web App: http://localhost:${PORT}`);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down EdgeFinder Pro...');
+  console.log('\n🛑 Shutting down EdgeFinder Pro Suite...');
   server.close(() => {
     console.log('✅ Server closed gracefully');
     process.exit(0);

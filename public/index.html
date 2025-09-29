@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EdgeFinder Pro - EV & Arbitrage Detection</title>
+    <title>EdgeFinder Pro - EV & Arbitrage Suite</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
@@ -23,36 +23,14 @@
 
     <!-- Main App -->
     <div id="app" class="app hidden">
-        <!-- Header -->
-        <header class="header">
-            <div class="header-content">
+        <!-- Top Bar -->
+        <header class="top-bar">
+            <div class="top-bar-left">
                 <div class="logo">
                     <i class="fas fa-chart-line"></i>
                     <span>EdgeFinder Pro</span>
                 </div>
                 
-                <!-- Top Controls -->
-                <div class="top-controls">
-                    <select id="sportSelector" class="control-select">
-                        <option value="NFL">🏈 NFL</option>
-                        <option value="NBA">🏀 NBA</option>
-                        <option value="MLB" selected>⚾ MLB</option>
-                        <option value="NHL">🏒 NHL</option>
-                    </select>
-                    
-                    <select id="marketFilter" class="control-select">
-                        <option value="h2h">Moneyline</option>
-                        <option value="spreads">Point Spread</option>
-                        <option value="totals">Over/Under</option>
-                        <option value="props">Player Props</option>
-                    </select>
-                    
-                    <div class="search-box">
-                        <i class="fas fa-search"></i>
-                        <input type="text" id="searchInput" placeholder="Search teams, players...">
-                    </div>
-                </div>
-
                 <!-- Baseline Badge -->
                 <div class="baseline-badge" id="baselineBadge">
                     <div class="baseline-icon">📍</div>
@@ -62,118 +40,294 @@
                     </div>
                 </div>
             </div>
+
+            <div class="top-bar-controls">
+                <select id="sportSelector" class="control-select">
+                    <option value="NFL">🏈 NFL</option>
+                    <option value="NBA">🏀 NBA</option>
+                    <option value="MLB" selected>⚾ MLB</option>
+                    <option value="NHL">🏒 NHL</option>
+                    <option value="Soccer">⚽ Soccer</option>
+                </select>
+                
+                <select id="leagueSelector" class="control-select">
+                    <option value="MLB">MLB</option>
+                </select>
+                
+                <select id="timeWindow" class="control-select">
+                    <option value="6">Next 6h</option>
+                    <option value="24" selected>Today</option>
+                    <option value="72">Next 3 days</option>
+                    <option value="all">All upcoming</option>
+                </select>
+                
+                <div class="search-box">
+                    <i class="fas fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="Search teams, players...">
+                </div>
+            </div>
         </header>
 
-        <!-- Sidebar Controls -->
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <h3>Filters</h3>
-                <button class="sidebar-toggle" id="sidebarToggle">
-                    <i class="fas fa-chevron-left"></i>
-                </button>
-            </div>
-
-            <div class="filter-section">
-                <h4>Display</h4>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="showEVOnly">
-                    <span class="slider"></span>
-                    <span class="label">+EV Only</span>
-                </label>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="showArbsOnly">
-                    <span class="slider"></span>
-                    <span class="label">Arbs Only</span>
-                </label>
-            </div>
-
-            <div class="filter-section">
-                <h4>EV Threshold</h4>
-                <div class="threshold-control">
-                    <input type="range" id="evThreshold" min="0" max="10" step="0.5" value="2">
-                    <span class="threshold-value" id="thresholdValue">2.0%</span>
+        <div class="app-body">
+            <!-- Left Rail Controls -->
+            <aside class="left-rail" id="leftRail">
+                <div class="rail-header">
+                    <h3>Filters</h3>
+                    <button class="rail-toggle" id="railToggle">
+                        <i class="fas fa-chevron-left"></i>
+                    </button>
                 </div>
-            </div>
 
-            <div class="filter-section">
-                <h4>Sportsbooks</h4>
-                <div class="book-toggles" id="bookToggles">
-                    <!-- Dynamically populated -->
-                </div>
-            </div>
-
-            <div class="filter-section">
-                <h4>Time Window</h4>
-                <select id="timeWindow" class="control-select">
-                    <option value="1">Next 1 hour</option>
-                    <option value="6">Next 6 hours</option>
-                    <option value="24" selected>Next 24 hours</option>
-                    <option value="72">Next 3 days</option>
-                </select>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Tab Navigation -->
-            <nav class="tab-nav">
-                <button class="tab-btn active" data-tab="positive-ev">
-                    <i class="fas fa-arrow-trend-up"></i>
-                    <span>Positive EV</span>
-                    <span class="tab-count" id="evCount">0</span>
-                </button>
-                <button class="tab-btn" data-tab="arbitrage">
-                    <i class="fas fa-balance-scale"></i>
-                    <span>Arbitrage</span>
-                    <span class="tab-count" id="arbCount">0</span>
-                </button>
-                <button class="tab-btn" data-tab="props">
-                    <i class="fas fa-user-tie"></i>
-                    <span>Player Props</span>
-                    <span class="tab-count" id="propsCount">0</span>
-                </button>
-            </nav>
-
-            <!-- Tab Content -->
-            <div class="tab-content">
-                <!-- Positive EV Tab -->
-                <div id="positive-ev" class="tab-panel active">
-                    <div class="panel-header">
-                        <h2>Positive Expected Value Opportunities</h2>
-                        <p class="explainer">Bets with positive expected value vs. fair market price</p>
-                    </div>
-                    <div class="odds-table-container">
-                        <div id="evTable" class="odds-table">
-                            <!-- Dynamically populated -->
-                        </div>
+                <!-- EV Threshold -->
+                <div class="filter-section">
+                    <h4>EV Threshold</h4>
+                    <div class="threshold-control">
+                        <input type="range" id="evThreshold" min="0" max="10" step="0.5" value="2">
+                        <span class="threshold-value" id="thresholdValue">2.0%</span>
                     </div>
                 </div>
 
-                <!-- Arbitrage Tab -->
-                <div id="arbitrage" class="tab-panel">
-                    <div class="panel-header">
-                        <h2>Arbitrage Opportunities</h2>
-                        <p class="explainer">Risk-free profit opportunities across different sportsbooks</p>
-                    </div>
-                    <div class="odds-table-container">
-                        <div id="arbTable" class="odds-table">
-                            <!-- Dynamically populated -->
-                        </div>
+                <!-- Display Toggles -->
+                <div class="filter-section">
+                    <h4>Display</h4>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showEVOnly">
+                        <span class="slider"></span>
+                        <span class="label">+EV Only</span>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showArbsOnly">
+                        <span class="slider"></span>
+                        <span class="label">Arbs Only</span>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="includeProps" checked>
+                        <span class="slider"></span>
+                        <span class="label">Include Props</span>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showSteam">
+                        <span class="slider"></span>
+                        <span class="label">Show Steam</span>
+                    </label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="showMiddles">
+                        <span class="slider"></span>
+                        <span class="label">Show Middles</span>
+                    </label>
+                </div>
+
+                <!-- Baseline Selector -->
+                <div class="filter-section">
+                    <h4>Baseline Book</h4>
+                    <select id="baselineSelector" class="control-select">
+                        <option value="pinnacle" selected>Pinnacle</option>
+                        <option value="draftkings">DraftKings</option>
+                        <option value="fanduel">FanDuel</option>
+                    </select>
+                    <div class="baseline-warning hidden" id="baselineWarning">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <span>Non-Pinnacle baseline may be less accurate</span>
                     </div>
                 </div>
 
-                <!-- Props Tab -->
-                <div id="props" class="tab-panel">
-                    <div class="panel-header">
-                        <h2>Player Props</h2>
-                        <p class="explainer">Player prop bets with value vs. fair market pricing</p>
+                <!-- Sportsbooks -->
+                <div class="filter-section">
+                    <h4>Sportsbooks</h4>
+                    <div class="book-controls">
+                        <button class="book-control-btn" id="showAllBooks">Show All</button>
+                        <button class="book-control-btn" id="hideAllBooks">Hide All</button>
                     </div>
-                    <div class="props-grid" id="propsGrid">
+                    <div class="book-toggles" id="bookToggles">
                         <!-- Dynamically populated -->
                     </div>
                 </div>
-            </div>
-        </main>
+
+                <!-- Kelly Settings -->
+                <div class="filter-section">
+                    <h4>Kelly Sizing</h4>
+                    <div class="kelly-control">
+                        <label>Kelly Fraction</label>
+                        <input type="range" id="kellyFraction" min="0.1" max="1" step="0.05" value="0.25">
+                        <span class="kelly-value" id="kellyValue">0.25</span>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- Market Tabs -->
+                <nav class="market-tabs">
+                    <button class="market-tab active" data-market="h2h">
+                        <i class="fas fa-trophy"></i>
+                        <span>Moneyline</span>
+                    </button>
+                    <button class="market-tab" data-market="spreads">
+                        <i class="fas fa-arrows-alt-h"></i>
+                        <span>Spread</span>
+                    </button>
+                    <button class="market-tab" data-market="totals">
+                        <i class="fas fa-plus-minus"></i>
+                        <span>Totals</span>
+                    </button>
+                    <button class="market-tab" data-market="props">
+                        <i class="fas fa-user-tie"></i>
+                        <span>Props</span>
+                    </button>
+                </nav>
+
+                <!-- Content Tabs -->
+                <nav class="content-tabs">
+                    <button class="content-tab active" data-tab="positive-ev">
+                        <i class="fas fa-arrow-trend-up"></i>
+                        <span>Positive EV</span>
+                        <span class="tab-count" id="evCount">0</span>
+                    </button>
+                    <button class="content-tab" data-tab="arbitrage">
+                        <i class="fas fa-balance-scale"></i>
+                        <span>Arbitrage</span>
+                        <span class="tab-count" id="arbCount">0</span>
+                    </button>
+                    <button class="content-tab" data-tab="props">
+                        <i class="fas fa-user-tie"></i>
+                        <span>Props</span>
+                        <span class="tab-count" id="propsCount">0</span>
+                    </button>
+                    <button class="content-tab" data-tab="movement">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Movement</span>
+                    </button>
+                    <button class="content-tab" data-tab="learn">
+                        <i class="fas fa-graduation-cap"></i>
+                        <span>Learn</span>
+                    </button>
+                </nav>
+
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <!-- Positive EV Tab -->
+                    <div id="positive-ev" class="tab-panel active">
+                        <div class="panel-header">
+                            <h2>Positive Expected Value Opportunities</h2>
+                            <p class="explainer">Bets with positive expected value vs. fair market price</p>
+                            <div class="panel-actions">
+                                <button class="export-btn" id="exportEV">
+                                    <i class="fas fa-download"></i>
+                                    Export CSV
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <div id="evTable" class="data-table">
+                                <!-- Dynamically populated -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Arbitrage Tab -->
+                    <div id="arbitrage" class="tab-panel">
+                        <div class="panel-header">
+                            <h2>Arbitrage Opportunities</h2>
+                            <p class="explainer">Risk-free profit opportunities across different sportsbooks</p>
+                            <div class="panel-actions">
+                                <button class="export-btn" id="exportArb">
+                                    <i class="fas fa-download"></i>
+                                    Export CSV
+                                </button>
+                            </div>
+                        </div>
+                        <div class="table-container">
+                            <div id="arbTable" class="data-table">
+                                <!-- Dynamically populated -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Props Tab -->
+                    <div id="props" class="tab-panel">
+                        <div class="panel-header">
+                            <h2>Player Props</h2>
+                            <p class="explainer">Player prop bets with value vs. fair market pricing</p>
+                            <div class="panel-actions">
+                                <button class="view-toggle" id="propsViewToggle">
+                                    <i class="fas fa-th-large"></i>
+                                    Cards
+                                </button>
+                                <button class="export-btn" id="exportProps">
+                                    <i class="fas fa-download"></i>
+                                    Export CSV
+                                </button>
+                            </div>
+                        </div>
+                        <div class="props-container">
+                            <div id="propsGrid" class="props-grid">
+                                <!-- Dynamically populated -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Movement Tab -->
+                    <div id="movement" class="tab-panel">
+                        <div class="panel-header">
+                            <h2>Line Movement</h2>
+                            <p class="explainer">Track line movement and steam detection</p>
+                        </div>
+                        <div class="movement-container">
+                            <div id="movementChart" class="movement-chart">
+                                <!-- Chart will be rendered here -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Learn Tab -->
+                    <div id="learn" class="tab-panel">
+                        <div class="panel-header">
+                            <h2>Learn</h2>
+                            <p class="explainer">Understanding EV, arbitrage, and advanced betting concepts</p>
+                        </div>
+                        <div class="learn-content">
+                            <div class="learn-section">
+                                <h3>Expected Value (EV)</h3>
+                                <p>Expected Value represents the average amount you can expect to win or lose per bet over the long term. Positive EV (+EV) bets are profitable over time.</p>
+                                <div class="formula">
+                                    <strong>EV% = (Fair Probability / Book Probability) - 1</strong>
+                                </div>
+                            </div>
+                            
+                            <div class="learn-section">
+                                <h3>Arbitrage</h3>
+                                <p>Arbitrage occurs when you can bet on all possible outcomes of an event across different sportsbooks and guarantee a profit regardless of the result.</p>
+                                <div class="formula">
+                                    <strong>Arb exists when: 1/Odds₁ + 1/Odds₂ < 1</strong>
+                                </div>
+                            </div>
+
+                            <div class="learn-section">
+                                <h3>Kelly Criterion</h3>
+                                <p>The Kelly Criterion helps determine optimal bet sizing to maximize long-term growth while managing risk.</p>
+                                <div class="formula">
+                                    <strong>Kelly% = (bp - q) / b</strong><br>
+                                    <small>where b = net odds, p = win probability, q = lose probability</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Right Drawer -->
+    <div id="rightDrawer" class="right-drawer">
+        <div class="drawer-header">
+            <h3 id="drawerTitle">Details</h3>
+            <button class="drawer-close" id="drawerClose">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div class="drawer-content" id="drawerContent">
+            <!-- Dynamically populated -->
+        </div>
     </div>
 
     <!-- Modals -->
@@ -192,12 +346,12 @@
                 </div>
                 <div class="stake-inputs">
                     <div class="input-group">
-                        <label>Total Bankroll</label>
-                        <input type="number" id="totalBankroll" value="1000" min="1" max="10000">
+                        <label>Total Bankroll ($)</label>
+                        <input type="number" id="totalBankroll" value="1000" min="1" max="100000">
                     </div>
                     <div class="input-group">
-                        <label>Target Profit</label>
-                        <input type="number" id="targetProfit" value="50" min="1" max="1000">
+                        <label>Target Profit ($)</label>
+                        <input type="number" id="targetProfit" value="50" min="1" max="10000">
                     </div>
                 </div>
                 <div class="stake-results" id="stakeResults">
@@ -262,6 +416,9 @@
     <button class="help-btn" id="helpBtn" title="How to book an arbitrage">
         <i class="fas fa-question"></i>
     </button>
+
+    <!-- Toast Container -->
+    <div id="toastContainer" class="toast-container"></div>
 
     <script src="app.js"></script>
 </body>
