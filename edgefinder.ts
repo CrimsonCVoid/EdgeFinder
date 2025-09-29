@@ -17,6 +17,8 @@
 
 import http from "node:http";
 import { URL } from "node:url";
+import path from "node:path";
+import fs from "node:fs";
 
 // ====== Config / Env =========================================================
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
@@ -530,6 +532,40 @@ function sendError(res: http.ServerResponse, code: number, message: string): voi
   sendJSON(res, code, { error: message, timestamp: new Date().toISOString() });
 }
 
+function serveStaticFile(res: http.ServerResponse, filePath: string): void {
+  const fullPath = path.join(process.cwd(), 'public', filePath);
+  
+  // Security check - ensure we're serving from public directory
+  if (!fullPath.startsWith(path.join(process.cwd(), 'public'))) {
+    return sendError(res, 403, "Forbidden");
+  }
+
+  fs.readFile(fullPath, (err, data) => {
+    if (err) {
+      return sendError(res, 404, "File not found");
+    }
+
+    // Set content type based on file extension
+    const ext = path.extname(filePath).toLowerCase();
+    const contentTypes: Record<string, string> = {
+      '.html': 'text/html',
+      '.css': 'text/css',
+      '.js': 'application/javascript',
+      '.json': 'application/json',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.gif': 'image/gif',
+      '.svg': 'image/svg+xml'
+    };
+
+    const contentType = contentTypes[ext] || 'text/plain';
+    res.writeHead(200, { 
+      'Content-Type': contentType,
+      'Access-Control-Allow-Origin': '*'
+    });
+    res.end(data);
+  });
+}
 const server = http.createServer(async (req, res) => {
   try {
     // Handle CORS preflight
@@ -541,6 +577,12 @@ const server = http.createServer(async (req, res) => {
     
     const url = new URL(req.url, `http://localhost:${PORT}`);
     const path = url.pathname;
+
+    // Serve static files from public directory
+    if (req.method === "GET" && path !== "/" && !path.startsWith("/api/") && !path.startsWith("/odds/") && !path.startsWith("/stats/") && !path.startsWith("/ev/") && !path.startsWith("/health")) {
+      const filePath = path === "/" ? "index.html" : path.substring(1);
+      return serveStaticFile(res, filePath);
+    }
 
     // Health check endpoint
     if (req.method === "GET" && path === "/health") {
@@ -560,28 +602,9 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, status);
     }
 
-    // Root endpoint - API documentation
+    // Root endpoint - serve web app
     if (req.method === "GET" && path === "/") {
-      const docs = {
-        name: "EdgeFinder EV Engine",
-        version: "1.0.0",
-        description: "Multi-sport Expected Value calculation engine for sports betting",
-        endpoints: {
-          "GET /health": "Service health check and API key status",
-          "GET /odds/:league": "Get real-time odds from multiple bookmakers",
-          "GET /stats/:league/:id": "Get team or player statistics",
-          "GET /ev/:league/:eventId": "Calculate expected value across bookmakers"
-        },
-        supported_leagues: Object.keys(LEAGUE_TO_ODDS_KEY),
-        example_usage: {
-          health: `${req.headers.host}/health`,
-          mlb_odds: `${req.headers.host}/odds/mlb?markets=h2h&region=us`,
-          mlb_stats: `${req.headers.host}/stats/mlb/147`,
-          ev_calculation: `${req.headers.host}/ev/mlb/EVENT_ID?devig=shin`
-        },
-        documentation: "https://github.com/your-repo/edgefinder"
-      };
-      return sendJSON(res, 200, docs);
+      return serveStaticFile(res, "index.html");
     }
 
     // /odds/:league endpoint

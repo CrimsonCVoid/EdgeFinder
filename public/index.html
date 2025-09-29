@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EdgeFinder EV Engine - Sports Betting Analysis</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <h1 class="logo">⚡ EdgeFinder</h1>
+                <nav class="nav">
+                    <button class="nav-btn active" data-tab="dashboard">Dashboard</button>
+                    <button class="nav-btn" data-tab="odds">Live Odds</button>
+                    <button class="nav-btn" data-tab="ev">EV Calculator</button>
+                    <button class="nav-btn" data-tab="stats">Team Stats</button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <main class="main">
+        <div class="container">
+            <!-- Dashboard Tab -->
+            <div id="dashboard" class="tab-content active">
+                <div class="hero">
+                    <h2>Sports Betting Expected Value Engine</h2>
+                    <p>Professional-grade EV calculations across 11+ sports leagues</p>
+                </div>
+
+                <div class="status-grid">
+                    <div class="status-card">
+                        <h3>Service Status</h3>
+                        <div id="service-status" class="status-indicator">
+                            <span class="status-dot loading"></span>
+                            <span>Checking...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="status-card">
+                        <h3>API Keys</h3>
+                        <div id="api-status">
+                            <div class="api-key-status">
+                                <span class="key-name">Odds API:</span>
+                                <span id="odds-api-status" class="status-badge">Loading...</span>
+                            </div>
+                            <div class="api-key-status">
+                                <span class="key-name">MLB Stats:</span>
+                                <span class="status-badge success">✓ Active</span>
+                            </div>
+                            <div class="api-key-status">
+                                <span class="key-name">NHL API:</span>
+                                <span class="status-badge success">✓ Active</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="status-card">
+                        <h3>Supported Leagues</h3>
+                        <div class="leagues-grid">
+                            <span class="league-badge">NFL</span>
+                            <span class="league-badge">NBA</span>
+                            <span class="league-badge">MLB</span>
+                            <span class="league-badge">NHL</span>
+                            <span class="league-badge">EPL</span>
+                            <span class="league-badge">UEFA</span>
+                            <span class="league-badge">MLS</span>
+                            <span class="league-badge">Bundesliga</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-icon">📊</div>
+                        <h3>Live Odds</h3>
+                        <p>Real-time odds from 40+ bookmakers via The Odds API</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">🧮</div>
+                        <h3>EV Calculations</h3>
+                        <p>Advanced de-vig methods: Proportional & Shin algorithms</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">📈</div>
+                        <h3>Statistical Models</h3>
+                        <p>Sport-specific priors and Kelly Criterion sizing</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-icon">⚡</div>
+                        <h3>Multi-Sport</h3>
+                        <p>NFL, NBA, MLB, NHL, Soccer leagues worldwide</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Odds Tab -->
+            <div id="odds" class="tab-content">
+                <div class="section-header">
+                    <h2>Live Odds</h2>
+                    <p>Real-time betting odds from multiple bookmakers</p>
+                </div>
+
+                <div class="controls">
+                    <select id="league-select" class="select">
+                        <option value="mlb">MLB - Major League Baseball</option>
+                        <option value="nba">NBA - Basketball</option>
+                        <option value="nfl">NFL - Football</option>
+                        <option value="nhl">NHL - Hockey</option>
+                        <option value="epl">EPL - English Premier League</option>
+                        <option value="mls">MLS - Major League Soccer</option>
+                    </select>
+                    <select id="market-select" class="select">
+                        <option value="h2h">Head to Head</option>
+                        <option value="spreads">Point Spreads</option>
+                        <option value="totals">Over/Under</option>
+                    </select>
+                    <button id="fetch-odds" class="btn btn-primary">Get Live Odds</button>
+                </div>
+
+                <div id="odds-results" class="results-container">
+                    <div class="placeholder">
+                        <div class="placeholder-icon">📊</div>
+                        <h3>Select a league and click "Get Live Odds"</h3>
+                        <p>Live odds from 40+ bookmakers will appear here</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- EV Calculator Tab -->
+            <div id="ev" class="tab-content">
+                <div class="section-header">
+                    <h2>Expected Value Calculator</h2>
+                    <p>Calculate EV across all bookmakers for any event</p>
+                </div>
+
+                <div class="ev-calculator">
+                    <div class="calc-inputs">
+                        <div class="input-group">
+                            <label for="ev-league">League</label>
+                            <select id="ev-league" class="select">
+                                <option value="mlb">MLB</option>
+                                <option value="nba">NBA</option>
+                                <option value="nfl">NFL</option>
+                                <option value="nhl">NHL</option>
+                                <option value="epl">EPL</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="event-id">Event ID</label>
+                            <input type="text" id="event-id" class="input" placeholder="Enter event ID">
+                        </div>
+                        <div class="input-group">
+                            <label for="devig-method">De-vig Method</label>
+                            <select id="devig-method" class="select">
+                                <option value="proportional">Proportional</option>
+                                <option value="shin">Shin Method</option>
+                            </select>
+                        </div>
+                        <div class="input-group">
+                            <label for="prior-weight">Prior Weight</label>
+                            <input type="range" id="prior-weight" class="slider" min="0" max="1" step="0.1" value="0.2">
+                            <span id="prior-weight-value">0.2</span>
+                        </div>
+                    </div>
+                    <button id="calculate-ev" class="btn btn-primary">Calculate EV</button>
+                </div>
+
+                <div id="ev-results" class="results-container">
+                    <div class="placeholder">
+                        <div class="placeholder-icon">🧮</div>
+                        <h3>Enter event details and calculate EV</h3>
+                        <p>Expected value analysis will appear here</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Team Stats Tab -->
+            <div id="stats" class="tab-content">
+                <div class="section-header">
+                    <h2>Team & Player Statistics</h2>
+                    <p>Free statistical data for modeling and analysis</p>
+                </div>
+
+                <div class="stats-controls">
+                    <div class="input-group">
+                        <label for="stats-league">League</label>
+                        <select id="stats-league" class="select">
+                            <option value="mlb">MLB</option>
+                            <option value="nhl">NHL</option>
+                            <option value="nba">NBA</option>
+                        </select>
+                    </div>
+                    <div class="input-group">
+                        <label for="team-id">Team/Player ID</label>
+                        <input type="text" id="team-id" class="input" placeholder="e.g., 147 for Yankees">
+                    </div>
+                    <button id="fetch-stats" class="btn btn-primary">Get Stats</button>
+                </div>
+
+                <div class="stats-examples">
+                    <h3>Popular Team IDs:</h3>
+                    <div class="team-examples">
+                        <button class="team-btn" data-league="mlb" data-id="147">Yankees (147)</button>
+                        <button class="team-btn" data-league="mlb" data-id="119">Dodgers (119)</button>
+                        <button class="team-btn" data-league="mlb" data-id="111">Red Sox (111)</button>
+                        <button class="team-btn" data-league="mlb" data-id="121">Mets (121)</button>
+                    </div>
+                </div>
+
+                <div id="stats-results" class="results-container">
+                    <div class="placeholder">
+                        <div class="placeholder-icon">📈</div>
+                        <h3>Select a team to view statistics</h3>
+                        <p>Comprehensive team and player data will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 EdgeFinder EV Engine. Educational use only. Gamble responsibly.</p>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
