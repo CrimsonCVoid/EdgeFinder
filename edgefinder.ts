@@ -560,6 +560,30 @@ const server = http.createServer(async (req, res) => {
       return sendJSON(res, 200, status);
     }
 
+    // Root endpoint - API documentation
+    if (req.method === "GET" && path === "/") {
+      const docs = {
+        name: "EdgeFinder EV Engine",
+        version: "1.0.0",
+        description: "Multi-sport Expected Value calculation engine for sports betting",
+        endpoints: {
+          "GET /health": "Service health check and API key status",
+          "GET /odds/:league": "Get real-time odds from multiple bookmakers",
+          "GET /stats/:league/:id": "Get team or player statistics",
+          "GET /ev/:league/:eventId": "Calculate expected value across bookmakers"
+        },
+        supported_leagues: Object.keys(LEAGUE_TO_ODDS_KEY),
+        example_usage: {
+          health: `${req.headers.host}/health`,
+          mlb_odds: `${req.headers.host}/odds/mlb?markets=h2h&region=us`,
+          mlb_stats: `${req.headers.host}/stats/mlb/147`,
+          ev_calculation: `${req.headers.host}/ev/mlb/EVENT_ID?devig=shin`
+        },
+        documentation: "https://github.com/your-repo/edgefinder"
+      };
+      return sendJSON(res, 200, docs);
+    }
+
     // /odds/:league endpoint
     if (req.method === "GET" && path.startsWith("/odds/")) {
       const league = decodeURIComponent(path.split("/")[2] || "");
