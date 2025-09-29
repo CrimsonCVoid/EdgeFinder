@@ -572,7 +572,7 @@ const server = http.createServer(async (req, res) => {
       // /api/props/:sport
       if (endpoint === "props" && param) {
         const props = generateMockProps();
-        return sendJSON(res, 200, { error: null, data: props });
+        return sendJSON(res, 200, { error: null, data: props.players });
       }
 
       // /api/movement/:sport
