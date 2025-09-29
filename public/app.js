@@ -1,10 +1,27 @@
-// EdgeFinder Pro - Modern Sports Analytics Dashboard
+// EdgeFinder Pro - EV & Arbitrage Detection App
 class EdgeFinderPro {
     constructor() {
+        this.config = window.EdgeFinderConfig || {};
         this.baseURL = window.location.origin;
         this.cache = new Map();
-        this.currentSection = 'dashboard';
-        this.animationObserver = null;
+        this.currentTab = 'positive-ev';
+        this.filters = {
+            sport: 'MLB',
+            market: 'h2h',
+            evThreshold: 2.0,
+            showEVOnly: false,
+            showArbsOnly: false,
+            hiddenBooks: [],
+            timeWindow: 24,
+            search: ''
+        };
+        this.data = {
+            odds: [],
+            evOpportunities: [],
+            arbOpportunities: [],
+            props: []
+        };
+        this.pollInterval = null;
         this.init();
     }
 
@@ -12,8 +29,7 @@ class EdgeFinderPro {
         this.showLoadingScreen();
         await this.initializeApp();
         this.setupEventListeners();
-        this.setupAnimations();
-        this.checkConnection();
+        this.setupPolling();
         this.hideLoadingScreen();
     }
 
@@ -23,7 +39,7 @@ class EdgeFinderPro {
     }
 
     async hideLoadingScreen() {
-        await new Promise(resolve => setTimeout(resolve, 1500)); // Minimum loading time
+        await new Promise(resolve => setTimeout(resolve, 2000));
         const loadingScreen = document.getElementById('loadingScreen');
         const app = document.getElementById('app');
         
@@ -32,667 +48,791 @@ class EdgeFinderPro {
     }
 
     async initializeApp() {
-        // Initialize dashboard stats
-        await this.updateDashboardStats();
-        
-        // Load initial data
-        this.loadDashboard();
+        this.setupBookToggles();
+        this.updateBaselineBadge();
+        await this.loadTestData();
+        this.renderCurrentTab();
     }
 
     setupEventListeners() {
-        // Navigation
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                const section = e.currentTarget.dataset.section;
-                this.switchSection(section);
+        // Tab navigation
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const tab = e.currentTarget.dataset.tab;
+                this.switchTab(tab);
             });
         });
 
-        // League cards
-        document.querySelectorAll('.league-card').forEach(card => {
-            card.addEventListener('click', (e) => {
-                const league = e.currentTarget.dataset.league;
-                this.selectLeague(league);
-            });
+        // Filters
+        document.getElementById('sportSelector').addEventListener('change', (e) => {
+            this.filters.sport = e.target.value;
+            this.applyFilters();
         });
 
-        // Controls
-        this.setupControlListeners();
-        
-        // Modal
+        document.getElementById('marketFilter').addEventListener('change', (e) => {
+            this.filters.market = e.target.value;
+            this.applyFilters();
+        });
+
+        document.getElementById('searchInput').addEventListener('input', (e) => {
+            this.filters.search = e.target.value.toLowerCase();
+            this.applyFilters();
+        });
+
+        document.getElementById('evThreshold').addEventListener('input', (e) => {
+            this.filters.evThreshold = parseFloat(e.target.value);
+            document.getElementById('thresholdValue').textContent = `${e.target.value}%`;
+            this.applyFilters();
+        });
+
+        document.getElementById('showEVOnly').addEventListener('change', (e) => {
+            this.filters.showEVOnly = e.target.checked;
+            this.applyFilters();
+        });
+
+        document.getElementById('showArbsOnly').addEventListener('change', (e) => {
+            this.filters.showArbsOnly = e.target.checked;
+            this.applyFilters();
+        });
+
+        document.getElementById('timeWindow').addEventListener('change', (e) => {
+            this.filters.timeWindow = parseInt(e.target.value);
+            this.applyFilters();
+        });
+
+        // Sidebar toggle
+        document.getElementById('sidebarToggle').addEventListener('click', () => {
+            document.querySelector('.app').classList.toggle('sidebar-collapsed');
+        });
+
+        // Modals
         this.setupModalListeners();
 
-        // Range input
-        const priorWeight = document.getElementById('priorWeight');
-        const priorWeightValue = document.getElementById('priorWeightValue');
-        if (priorWeight && priorWeightValue) {
-            priorWeight.addEventListener('input', (e) => {
-                priorWeightValue.textContent = e.target.value;
-            });
-        }
-    }
-
-    setupControlListeners() {
-        // Odds controls
-        const fetchOddsBtn = document.getElementById('fetchOdds');
-        if (fetchOddsBtn) {
-            fetchOddsBtn.addEventListener('click', () => this.fetchOdds());
-        }
-
-        // Players controls
-        const fetchPlayersBtn = document.getElementById('fetchPlayers');
-        if (fetchPlayersBtn) {
-            fetchPlayersBtn.addEventListener('click', () => this.fetchPlayers());
-        }
-
-        // Team buttons
-        document.querySelectorAll('.team-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const league = e.currentTarget.dataset.league;
-                const id = e.currentTarget.dataset.id;
-                this.selectTeam(league, id);
-            });
+        // Help button
+        document.getElementById('helpBtn').addEventListener('click', () => {
+            this.showModal('howToModal');
         });
-
-        // Analytics controls
-        const calculateEVBtn = document.getElementById('calculateEV');
-        if (calculateEVBtn) {
-            calculateEVBtn.addEventListener('click', () => this.calculateEV());
-        }
     }
 
     setupModalListeners() {
-        const modal = document.getElementById('playerModal');
-        const closeBtn = modal.querySelector('.modal-close');
-        
-        closeBtn.addEventListener('click', () => this.closeModal());
-        
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) {
-                this.closeModal();
-            }
+        // Close modals
+        document.querySelectorAll('.modal-close').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const modal = e.target.closest('.modal-overlay');
+                this.hideModal(modal.id);
+            });
         });
-    }
 
-    setupAnimations() {
-        // Intersection Observer for scroll animations
-        this.animationObserver = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    entry.target.style.animationPlayState = 'running';
+        // Close on overlay click
+        document.querySelectorAll('.modal-overlay').forEach(modal => {
+            modal.addEventListener('click', (e) => {
+                if (e.target === modal) {
+                    this.hideModal(modal.id);
                 }
             });
-        }, { threshold: 0.1 });
+        });
 
-        // Observe animated elements
-        document.querySelectorAll('[data-animate]').forEach(el => {
-            this.animationObserver.observe(el);
+        // Stake calculator actions
+        document.getElementById('closeCalculator').addEventListener('click', () => {
+            this.hideModal('stakeCalculatorModal');
+        });
+
+        document.getElementById('copyStakes').addEventListener('click', () => {
+            this.copyStakesToClipboard();
+        });
+
+        document.getElementById('closeHowTo').addEventListener('click', () => {
+            this.hideModal('howToModal');
+        });
+
+        // Auto-calculate stakes
+        ['totalBankroll', 'targetProfit'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => {
+                this.calculateStakes();
+            });
         });
     }
 
-    switchSection(sectionName) {
-        // Update navigation
-        document.querySelectorAll('.nav-item').forEach(item => {
-            item.classList.remove('active');
-        });
-        document.querySelector(`[data-section="${sectionName}"]`).classList.add('active');
-
-        // Update content
-        document.querySelectorAll('.section').forEach(section => {
-            section.classList.remove('active');
-        });
-        document.getElementById(sectionName).classList.add('active');
-
-        this.currentSection = sectionName;
-
-        // Load section-specific data
-        this.loadSectionData(sectionName);
-    }
-
-    loadSectionData(section) {
-        switch (section) {
-            case 'dashboard':
-                this.loadDashboard();
-                break;
-            case 'odds':
-                // Odds data loaded on demand
-                break;
-            case 'players':
-                // Players data loaded on demand
-                break;
-            case 'analytics':
-                // Analytics data loaded on demand
-                break;
-        }
-    }
-
-    async loadDashboard() {
-        await this.updateDashboardStats();
-    }
-
-    async updateDashboardStats() {
-        try {
-            const response = await this.fetchWithCache('/health', 30000); // 30s cache
-            
-            // Update connection status
-            this.updateConnectionStatus(response.ok);
-            
-            if (response.ok) {
-                const data = await response.json();
-                
-                // Update stats (mock data for now)
-                document.getElementById('totalGames').textContent = '12';
-                document.getElementById('positiveEV').textContent = '3';
-                document.getElementById('totalBooks').textContent = '40+';
-                document.getElementById('totalLeagues').textContent = '8';
-            }
-        } catch (error) {
-            console.error('Failed to update dashboard stats:', error);
-            this.updateConnectionStatus(false);
-        }
-    }
-
-    updateConnectionStatus(isConnected) {
-        const statusElement = document.getElementById('connectionStatus');
-        const dot = statusElement.querySelector('.status-dot');
-        const text = statusElement.querySelector('span');
-
-        if (isConnected) {
-            dot.className = 'status-dot connected';
-            text.textContent = 'Connected';
-        } else {
-            dot.className = 'status-dot error';
-            text.textContent = 'Connection Error';
-        }
-    }
-
-    async checkConnection() {
-        try {
-            const response = await fetch(`${this.baseURL}/health`);
-            this.updateConnectionStatus(response.ok);
-        } catch (error) {
-            this.updateConnectionStatus(false);
-        }
-    }
-
-    selectLeague(league) {
-        // Update odds section
-        document.getElementById('oddsLeague').value = league;
+    setupBookToggles() {
+        const container = document.getElementById('bookToggles');
+        const sportsbooks = this.config.sportsbooks || {};
         
-        // Switch to odds section
-        this.switchSection('odds');
-        
-        // Auto-fetch odds
-        setTimeout(() => this.fetchOdds(), 500);
-    }
-
-    selectTeam(league, id) {
-        document.getElementById('playersLeague').value = league;
-        document.getElementById('teamId').value = id;
-        
-        // Switch to players section
-        this.switchSection('players');
-        
-        // Auto-fetch players
-        setTimeout(() => this.fetchPlayers(), 500);
-    }
-
-    async fetchOdds() {
-        const league = document.getElementById('oddsLeague').value;
-        const market = document.getElementById('oddsMarket').value;
-        const resultsContainer = document.getElementById('oddsResults');
-
-        this.showLoading(resultsContainer);
-
-        try {
-            const response = await fetch(`${this.baseURL}/odds/${league}?markets=${market}&region=us`);
-            const data = await response.json();
-
-            if (data.error) {
-                this.showError(resultsContainer, data.error);
-                return;
-            }
-
-            if (!data.data || data.data.length === 0) {
-                this.showPlaceholder(resultsContainer, 'No odds available', 'Try a different league or check back later');
-                return;
-            }
-
-            this.displayOdds(data.data, resultsContainer);
-        } catch (error) {
-            console.error('Failed to fetch odds:', error);
-            this.showError(resultsContainer, 'Failed to fetch odds. Please try again.');
-        }
-    }
-
-    displayOdds(oddsData, container) {
-        let html = '<div class="odds-grid">';
-        
-        oddsData.forEach(event => {
-            html += `
-                <div class="odds-event" data-animate="fadeInUp">
-                    <div class="event-header">
-                        <h3>${event.home_team} vs ${event.away_team}</h3>
-                        <p class="event-time">${new Date(event.commence_time).toLocaleString()}</p>
-                    </div>
-                    <div class="bookmakers-grid">
+        Object.entries(sportsbooks).forEach(([key, book]) => {
+            const toggle = document.createElement('div');
+            toggle.className = 'book-toggle';
+            toggle.innerHTML = `
+                <div class="book-color" style="background-color: ${book.color}"></div>
+                <span class="book-name">${book.name}</span>
+                <input type="checkbox" checked data-book="${key}">
             `;
+            
+            const checkbox = toggle.querySelector('input');
+            checkbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    this.filters.hiddenBooks = this.filters.hiddenBooks.filter(b => b !== key);
+                } else {
+                    this.filters.hiddenBooks.push(key);
+                }
+                this.applyFilters();
+            });
+            
+            container.appendChild(toggle);
+        });
+    }
 
-            event.bookmakers?.forEach(bookmaker => {
-                const market = bookmaker.markets?.[0];
-                if (market && market.outcomes) {
-                    html += `
-                        <div class="bookmaker-card">
-                            <h4>${bookmaker.title}</h4>
-                            <div class="outcomes">
-                    `;
-                    
-                    market.outcomes.forEach(outcome => {
-                        const odds = this.formatOdds(outcome.price);
-                        html += `
-                            <div class="outcome">
-                                <span class="team">${outcome.name}</span>
-                                <span class="odds">${odds}</span>
-                            </div>
-                        `;
+    updateBaselineBadge() {
+        const badge = document.getElementById('baselineBadge');
+        const now = new Date();
+        const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        badge.querySelector('.baseline-time').textContent = `Last: ${timeStr}`;
+    }
+
+    setupPolling() {
+        // Poll for new data every 30 seconds
+        this.pollInterval = setInterval(() => {
+            this.loadTestData();
+            this.updateBaselineBadge();
+        }, 30000);
+    }
+
+    async loadTestData() {
+        // Load test fixtures for development
+        const fixtures = this.config.fixtures || {};
+        
+        // Simulate API calls with test data
+        this.data.odds = [
+            this.processOddsData(fixtures.mlbMoneyline),
+            this.processOddsData(fixtures.nbaArb)
+        ].filter(Boolean);
+
+        this.calculateEVAndArb();
+        this.updateTabCounts();
+    }
+
+    processOddsData(fixture) {
+        if (!fixture) return null;
+
+        const processed = {
+            id: fixture.id,
+            sport: fixture.sport,
+            homeTeam: fixture.home_team,
+            awayTeam: fixture.away_team,
+            commenceTime: new Date(fixture.commence_time),
+            bookmakers: {}
+        };
+
+        fixture.bookmakers.forEach(bookmaker => {
+            const market = bookmaker.markets[0];
+            if (market && market.outcomes.length >= 2) {
+                processed.bookmakers[bookmaker.key] = {
+                    name: bookmaker.title,
+                    homeOdds: this.decimalToAmerican(market.outcomes[0].price),
+                    awayOdds: this.decimalToAmerican(market.outcomes[1].price),
+                    homeDecimal: market.outcomes[0].price,
+                    awayDecimal: market.outcomes[1].price
+                };
+            }
+        });
+
+        return processed;
+    }
+
+    calculateEVAndArb() {
+        this.data.evOpportunities = [];
+        this.data.arbOpportunities = [];
+
+        this.data.odds.forEach(game => {
+            const baseline = game.bookmakers.pinnacle;
+            if (!baseline) return;
+
+            // Calculate fair odds (no-vig)
+            const homeImplied = 1 / baseline.homeDecimal;
+            const awayImplied = 1 / baseline.awayDecimal;
+            const totalImplied = homeImplied + awayImplied;
+            
+            const fairHomeProb = homeImplied / totalImplied;
+            const fairAwayProb = awayImplied / totalImplied;
+            const fairHomeOdds = 1 / fairHomeProb;
+            const fairAwayOdds = 1 / fairAwayProb;
+
+            // Check each bookmaker for EV and arbitrage
+            Object.entries(game.bookmakers).forEach(([bookKey, bookData]) => {
+                if (bookKey === 'pinnacle') return;
+
+                // Calculate EV
+                const homeEV = this.calculateEV(fairHomeProb, bookData.homeDecimal);
+                const awayEV = this.calculateEV(fairAwayProb, bookData.awayDecimal);
+
+                if (homeEV >= this.filters.evThreshold) {
+                    this.data.evOpportunities.push({
+                        ...game,
+                        side: 'home',
+                        bookmaker: bookData.name,
+                        bookKey: bookKey,
+                        odds: bookData.homeOdds,
+                        decimal: bookData.homeDecimal,
+                        fairOdds: this.decimalToAmerican(fairHomeOdds),
+                        ev: homeEV,
+                        hold: ((totalImplied - 1) * 100).toFixed(1)
                     });
+                }
 
-                    html += `
-                            </div>
-                        </div>
-                    `;
+                if (awayEV >= this.filters.evThreshold) {
+                    this.data.evOpportunities.push({
+                        ...game,
+                        side: 'away',
+                        bookmaker: bookData.name,
+                        bookKey: bookKey,
+                        odds: bookData.awayOdds,
+                        decimal: bookData.awayDecimal,
+                        fairOdds: this.decimalToAmerican(fairAwayOdds),
+                        ev: awayEV,
+                        hold: ((totalImplied - 1) * 100).toFixed(1)
+                    });
                 }
             });
 
+            // Check for arbitrage opportunities
+            this.findArbitrageOpportunities(game);
+        });
+    }
+
+    findArbitrageOpportunities(game) {
+        const bookmakers = Object.entries(game.bookmakers);
+        
+        // Check all combinations for arbitrage
+        for (let i = 0; i < bookmakers.length; i++) {
+            for (let j = i + 1; j < bookmakers.length; j++) {
+                const [book1Key, book1] = bookmakers[i];
+                const [book2Key, book2] = bookmakers[j];
+
+                // Check home at book1, away at book2
+                const arb1 = this.checkArbitrage(
+                    book1.homeDecimal, book2.awayDecimal,
+                    book1.name, book2.name,
+                    book1.homeOdds, book2.awayOdds,
+                    'home', 'away'
+                );
+
+                if (arb1.isArb) {
+                    this.data.arbOpportunities.push({
+                        ...game,
+                        ...arb1,
+                        book1Key,
+                        book2Key
+                    });
+                }
+
+                // Check away at book1, home at book2
+                const arb2 = this.checkArbitrage(
+                    book1.awayDecimal, book2.homeDecimal,
+                    book1.name, book2.name,
+                    book1.awayOdds, book2.homeOdds,
+                    'away', 'home'
+                );
+
+                if (arb2.isArb) {
+                    this.data.arbOpportunities.push({
+                        ...game,
+                        ...arb2,
+                        book1Key,
+                        book2Key
+                    });
+                }
+            }
+        }
+    }
+
+    checkArbitrage(decimal1, decimal2, book1Name, book2Name, odds1, odds2, side1, side2) {
+        const implied1 = 1 / decimal1;
+        const implied2 = 1 / decimal2;
+        const totalImplied = implied1 + implied2;
+
+        if (totalImplied < 1) {
+            const profit = ((1 - totalImplied) / totalImplied * 100);
+            return {
+                isArb: profit >= 1.5, // Minimum 1.5% profit
+                profit: profit.toFixed(2),
+                book1: book1Name,
+                book2: book2Name,
+                odds1,
+                odds2,
+                side1,
+                side2,
+                decimal1,
+                decimal2,
+                stake1Ratio: implied1 / totalImplied,
+                stake2Ratio: implied2 / totalImplied
+            };
+        }
+
+        return { isArb: false };
+    }
+
+    calculateEV(fairProb, decimal) {
+        const impliedProb = 1 / decimal;
+        return ((fairProb - impliedProb) / impliedProb * 100);
+    }
+
+    decimalToAmerican(decimal) {
+        if (decimal >= 2) {
+            return Math.round((decimal - 1) * 100);
+        } else {
+            return Math.round(-100 / (decimal - 1));
+        }
+    }
+
+    americanToDecimal(american) {
+        if (american > 0) {
+            return 1 + american / 100;
+        } else {
+            return 1 + 100 / Math.abs(american);
+        }
+    }
+
+    switchTab(tabName) {
+        // Update tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('active');
+        });
+        document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+
+        // Update tab panels
+        document.querySelectorAll('.tab-panel').forEach(panel => {
+            panel.classList.remove('active');
+        });
+        document.getElementById(tabName).classList.add('active');
+
+        this.currentTab = tabName;
+        this.renderCurrentTab();
+    }
+
+    renderCurrentTab() {
+        switch (this.currentTab) {
+            case 'positive-ev':
+                this.renderEVTable();
+                break;
+            case 'arbitrage':
+                this.renderArbTable();
+                break;
+            case 'props':
+                this.renderPropsGrid();
+                break;
+        }
+    }
+
+    renderEVTable() {
+        const container = document.getElementById('evTable');
+        const opportunities = this.getFilteredEVOpportunities();
+
+        if (opportunities.length === 0) {
+            container.innerHTML = this.getEmptyState('No +EV opportunities found', 'Try adjusting your filters or check back later');
+            return;
+        }
+
+        let html = `
+            <div class="table-header">
+                <div>Matchup</div>
+                <div>Fair Price</div>
+                <div>Best Price</div>
+                <div>Book</div>
+                <div>EV%</div>
+                <div>Hold%</div>
+                <div>Actions</div>
+            </div>
+        `;
+
+        opportunities.forEach(opp => {
+            const team = opp.side === 'home' ? opp.homeTeam : opp.awayTeam;
+            const timeStr = opp.commenceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
             html += `
+                <div class="odds-row">
+                    <div class="matchup">
+                        <div class="teams">${opp.homeTeam} vs ${opp.awayTeam}</div>
+                        <div class="game-time">${timeStr} • ${team}</div>
+                    </div>
+                    <div class="fair-price">${opp.fairOdds > 0 ? '+' : ''}${opp.fairOdds}</div>
+                    <div class="best-price">${opp.odds > 0 ? '+' : ''}${opp.odds}</div>
+                    <div class="book-name">${opp.bookmaker}</div>
+                    <div class="signal-pills">
+                        <div class="ev-pill positive">${opp.ev.toFixed(1)}%</div>
+                    </div>
+                    <div class="hold-pill">${opp.hold}%</div>
+                    <div class="action-buttons">
+                        <a href="#" class="bet-btn" data-book="${opp.bookKey}">
+                            <i class="fas fa-external-link-alt"></i>
+                            Bet at ${opp.bookmaker}
+                        </a>
+                        <button class="copy-btn tooltip" data-tooltip="Copy bet details" onclick="edgeFinderPro.copyBet('${opp.id}', '${opp.side}', '${opp.bookmaker}', '${opp.odds}')">
+                            <i class="fas fa-copy"></i>
+                        </button>
                     </div>
                 </div>
             `;
         });
 
-        html += '</div>';
         container.innerHTML = html;
-        
-        // Re-observe new animated elements
-        container.querySelectorAll('[data-animate]').forEach(el => {
-            this.animationObserver.observe(el);
-        });
     }
 
-    async fetchPlayers() {
-        const league = document.getElementById('playersLeague').value;
-        const teamId = document.getElementById('teamId').value.trim();
-        const resultsContainer = document.getElementById('playersResults');
+    renderArbTable() {
+        const container = document.getElementById('arbTable');
+        const opportunities = this.getFilteredArbOpportunities();
 
-        if (!teamId) {
-            this.showError(resultsContainer, 'Please enter a Team/Player ID');
+        if (opportunities.length === 0) {
+            container.innerHTML = this.getEmptyState('No arbitrage opportunities found', 'Arbitrage opportunities are rare but profitable when found');
             return;
         }
 
-        this.showLoading(resultsContainer);
-
-        try {
-            const response = await fetch(`${this.baseURL}/stats/${league}/${teamId}`);
-            const data = await response.json();
-
-            if (data.error) {
-                this.showError(resultsContainer, data.error);
-                return;
-            }
-
-            this.displayPlayers(data.data, resultsContainer, league);
-        } catch (error) {
-            console.error('Failed to fetch players:', error);
-            this.showError(resultsContainer, 'Failed to fetch players. Please try again.');
-        }
-    }
-
-    displayPlayers(playersData, container, league) {
-        if (league === 'mlb' && playersData.teams) {
-            // Handle MLB team data
-            const team = playersData.teams[0];
-            this.displayMLBTeam(team, container);
-        } else if (playersData.roster) {
-            // Handle roster data
-            this.displayRoster(playersData.roster, container);
-        } else {
-            // Handle raw stats data
-            this.displayRawStats(playersData, container);
-        }
-    }
-
-    displayMLBTeam(team, container) {
         let html = `
-            <div class="team-header" data-animate="fadeInUp">
-                <h2>${team.name}</h2>
-                <p>${team.division?.name || ''} | ${team.league?.name || ''}</p>
+            <div class="table-header">
+                <div>Matchup</div>
+                <div>Side 1</div>
+                <div>Side 2</div>
+                <div>Books</div>
+                <div>Profit%</div>
+                <div>Hold%</div>
+                <div>Actions</div>
             </div>
-            <div class="players-grid">
         `;
 
-        // Mock player data since we don't have roster in team endpoint
-        const mockPlayers = [
-            { id: 1, name: 'Player 1', position: 'P', number: '1' },
-            { id: 2, name: 'Player 2', position: 'C', number: '2' },
-            { id: 3, name: 'Player 3', position: '1B', number: '3' },
+        opportunities.forEach(opp => {
+            const timeStr = opp.commenceTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const side1Team = opp.side1 === 'home' ? opp.homeTeam : opp.awayTeam;
+            const side2Team = opp.side2 === 'home' ? opp.homeTeam : opp.awayTeam;
+            
+            html += `
+                <div class="odds-row">
+                    <div class="matchup">
+                        <div class="teams">${opp.homeTeam} vs ${opp.awayTeam}</div>
+                        <div class="game-time">${timeStr}</div>
+                    </div>
+                    <div class="best-price">
+                        <div>${side1Team}</div>
+                        <div class="book-name">${opp.odds1 > 0 ? '+' : ''}${opp.odds1}</div>
+                    </div>
+                    <div class="best-price">
+                        <div>${side2Team}</div>
+                        <div class="book-name">${opp.odds2 > 0 ? '+' : ''}${opp.odds2}</div>
+                    </div>
+                    <div class="book-name">
+                        <div>${opp.book1}</div>
+                        <div>${opp.book2}</div>
+                    </div>
+                    <div class="signal-pills">
+                        <div class="arb-pill" onclick="edgeFinderPro.showStakeCalculator('${opp.id}')">
+                            ${opp.profit}%
+                        </div>
+                    </div>
+                    <div class="hold-pill">-</div>
+                    <div class="action-buttons">
+                        <button class="bet-btn" onclick="edgeFinderPro.showStakeCalculator('${opp.id}')">
+                            <i class="fas fa-calculator"></i>
+                            Calculate
+                        </button>
+                    </div>
+                </div>
+            `;
+        });
+
+        container.innerHTML = html;
+    }
+
+    renderPropsGrid() {
+        const container = document.getElementById('propsGrid');
+        
+        // Mock props data for demonstration
+        const mockProps = [
+            {
+                id: 'prop1',
+                playerName: 'Aaron Judge',
+                team: 'NYY',
+                market: 'Home Runs O/U 0.5',
+                fairLine: '+180',
+                bestLine: '+220',
+                bookmaker: 'DraftKings',
+                ev: 3.2,
+                photo: 'https://img.mlbstatic.com/mlb-photos/image/upload/w_300,h_300,q_auto:best,f_auto/v1/people/592450/headshot/67/current'
+            },
+            {
+                id: 'prop2',
+                playerName: 'Mookie Betts',
+                team: 'LAD',
+                market: 'Hits O/U 1.5',
+                fairLine: '-120',
+                bestLine: '-105',
+                bookmaker: 'FanDuel',
+                ev: 2.8,
+                photo: 'https://img.mlbstatic.com/mlb-photos/image/upload/w_300,h_300,q_auto:best,f_auto/v1/people/605141/headshot/67/current'
+            }
         ];
 
-        mockPlayers.forEach((player, index) => {
-            const photoUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/w_300,h_300,q_auto:best,f_auto/v1/people/${player.id}/headshot/67/current`;
-            
-            html += `
-                <div class="player-card" data-animate="fadeInUp" style="animation-delay: ${index * 0.1}s" onclick="edgeFinderPro.showPlayerModal(${player.id}, '${player.name}')">
-                    <img class="player-photo" src="${photoUrl}" alt="${player.name}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDMwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjMUExRjJFIi8+CjxjaXJjbGUgY3g9IjE1MCIgY3k9IjEyMCIgcj0iNDAiIGZpbGw9IiM2QjcyODAiLz4KPHBhdGggZD0iTTEwMCAyMDBDMTAwIDE3Mi4zODYgMTIyLjM4NiAxNTAgMTUwIDE1MFMyMDAgMTcyLjM4NiAyMDAgMjAwVjI1MEgxMDBWMjAwWiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K'">
-                    <div class="player-info">
-                        <div class="player-number">#${player.number}</div>
-                        <div class="player-name">${player.name}</div>
-                        <div class="player-position">${player.position}</div>
-                        <div class="player-stats">
-                            <span>AVG: .285</span>
-                            <span>HR: 12</span>
-                            <span>RBI: 45</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-
-        html += '</div>';
-        container.innerHTML = html;
-        
-        // Re-observe new animated elements
-        container.querySelectorAll('[data-animate]').forEach(el => {
-            this.animationObserver.observe(el);
-        });
-    }
-
-    displayRoster(roster, container) {
-        let html = '<div class="players-grid">';
-        
-        roster.forEach((player, index) => {
-            const photoUrl = `https://img.mlbstatic.com/mlb-photos/image/upload/w_300,h_300,q_auto:best,f_auto/v1/people/${player.person.id}/headshot/67/current`;
-            
-            html += `
-                <div class="player-card" data-animate="fadeInUp" style="animation-delay: ${index * 0.1}s" onclick="edgeFinderPro.showPlayerModal(${player.person.id}, '${player.person.fullName}')">
-                    <img class="player-photo" src="${photoUrl}" alt="${player.person.fullName}" onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjMwMCIgdmlld0JveD0iMCAwIDMwMCAzMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIiBmaWxsPSIjMUExRjJFIi8+CjxjaXJjbGUgY3g9IjE1MCIgY3k9IjEyMCIgcj0iNDAiIGZpbGw9IiM2QjcyODAiLz4KPHBhdGggZD0iTTEwMCAyMDBDMTAwIDE3Mi4zODYgMTIyLjM4NiAxNTAgMTUwIDE1MFMyMDAgMTcyLjM4NiAyMDAgMjAwVjI1MEgxMDBWMjAwWiIgZmlsbD0iIzZCNzI4MCIvPgo8L3N2Zz4K'">
-                    <div class="player-info">
-                        <div class="player-number">#${player.jerseyNumber || '—'}</div>
-                        <div class="player-name">${player.person.fullName}</div>
-                        <div class="player-position">${player.position.name}</div>
-                        <div class="player-stats">
-                            <span>Click for stats</span>
-                        </div>
-                    </div>
-                </div>
-            `;
-        });
-
-        html += '</div>';
-        container.innerHTML = html;
-        
-        // Re-observe new animated elements
-        container.querySelectorAll('[data-animate]').forEach(el => {
-            this.animationObserver.observe(el);
-        });
-    }
-
-    displayRawStats(statsData, container) {
-        const html = `
-            <div class="stats-display" data-animate="fadeInUp">
-                <h3>Statistics Data</h3>
-                <pre class="stats-json">${JSON.stringify(statsData, null, 2)}</pre>
-            </div>
-        `;
-        container.innerHTML = html;
-        
-        // Re-observe new animated elements
-        container.querySelectorAll('[data-animate]').forEach(el => {
-            this.animationObserver.observe(el);
-        });
-    }
-
-    async calculateEV() {
-        const league = document.getElementById('evLeague').value;
-        const eventId = document.getElementById('eventId').value.trim();
-        const devigMethod = document.getElementById('devigMethod').value;
-        const priorWeight = document.getElementById('priorWeight').value;
-        const resultsContainer = document.getElementById('analyticsResults');
-
-        if (!eventId) {
-            this.showError(resultsContainer, 'Please enter an Event ID');
+        if (mockProps.length === 0) {
+            container.innerHTML = this.getEmptyState('No player props available', 'Props data varies by sport and availability');
             return;
         }
 
-        this.showLoading(resultsContainer);
-
-        try {
-            const url = `${this.baseURL}/ev/${league}/${eventId}?devig=${devigMethod}&prior_weight=${priorWeight}`;
-            const response = await fetch(url);
-            const data = await response.json();
-
-            if (data.error) {
-                this.showError(resultsContainer, data.error);
-                return;
-            }
-
-            this.displayEVResults(data, resultsContainer);
-        } catch (error) {
-            console.error('Failed to calculate EV:', error);
-            this.showError(resultsContainer, 'Failed to calculate EV. Please try again.');
-        }
-    }
-
-    displayEVResults(evData, container) {
-        let html = `
-            <div class="ev-results" data-animate="fadeInUp">
-                <div class="ev-header">
-                    <h3>Expected Value Analysis</h3>
-                    <p>Event: ${evData.eventId} | League: ${evData.league.toUpperCase()}</p>
-                </div>
-        `;
-
-        Object.entries(evData.markets).forEach(([marketKey, bookmakers]) => {
+        let html = '';
+        mockProps.forEach(prop => {
             html += `
-                <div class="market-section">
-                    <h4>${this.formatMarketName(marketKey)}</h4>
-                    <table class="analytics-table">
-                        <thead>
-                            <tr>
-                                <th>Bookmaker</th>
-                                <th>Selection</th>
-                                <th>American Odds</th>
-                                <th>Implied %</th>
-                                <th>Fair %</th>
-                                <th>Blended %</th>
-                                <th>EV ($100)</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-
-            bookmakers.forEach(bookmaker => {
-                bookmaker.selections.forEach(selection => {
-                    const evClass = selection.ev_100 > 0 ? 'positive-ev' : 'negative-ev';
-                    html += `
-                        <tr>
-                            <td>${bookmaker.bookmaker}</td>
-                            <td>${selection.name}</td>
-                            <td>${this.formatOdds(selection.american)}</td>
-                            <td>${(selection.implied * 100).toFixed(1)}%</td>
-                            <td>${(selection.fair * 100).toFixed(1)}%</td>
-                            <td>${(selection.blended * 100).toFixed(1)}%</td>
-                            <td class="${evClass}">$${selection.ev_100.toFixed(2)}</td>
-                        </tr>
-                    `;
-                });
-            });
-
-            html += `
-                        </tbody>
-                    </table>
+                <div class="prop-card">
+                    <div class="prop-header">
+                        <img class="player-photo" src="${prop.photo}" alt="${prop.playerName}" 
+                             onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHZpZXdCb3g9IjAgMCA2MCA2MCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPGNpcmNsZSBjeD0iMzAiIGN5PSIzMCIgcj0iMzAiIGZpbGw9IiM2QjcyODAiLz4KPGNpcmNsZSBjeD0iMzAiIGN5PSIyNSIgcj0iOCIgZmlsbD0id2hpdGUiLz4KPHBhdGggZD0iTTE1IDQ1QzE1IDM4LjM3MjYgMjAuMzcyNiAzMyAyNyAzM0gzM0MzOS42Mjc0IDMzIDQ1IDM4LjM3MjYgNDUgNDVWNTBIMTVWNDVaIiBmaWxsPSJ3aGl0ZSIvPgo8L3N2Zz4K'">
+                        <div class="player-info">
+                            <h4>${prop.playerName}</h4>
+                            <div class="player-team">${prop.team}</div>
+                        </div>
+                    </div>
+                    <div class="prop-market">${prop.market}</div>
+                    <div class="prop-odds">
+                        <div class="prop-prices">
+                            <div class="fair-line">Fair: ${prop.fairLine}</div>
+                            <div class="best-line">Best: ${prop.bestLine} @ ${prop.bookmaker}</div>
+                        </div>
+                        <div class="signal-pills">
+                            <div class="ev-pill positive">${prop.ev.toFixed(1)}%</div>
+                        </div>
+                    </div>
                 </div>
             `;
         });
 
-        html += '</div>';
         container.innerHTML = html;
-        
-        // Re-observe new animated elements
-        container.querySelectorAll('[data-animate]').forEach(el => {
-            this.animationObserver.observe(el);
+    }
+
+    getFilteredEVOpportunities() {
+        return this.data.evOpportunities.filter(opp => {
+            if (this.filters.showArbsOnly) return false;
+            if (opp.ev < this.filters.evThreshold) return false;
+            if (this.filters.hiddenBooks.includes(opp.bookKey)) return false;
+            if (this.filters.search && !this.matchesSearch(opp)) return false;
+            return true;
         });
     }
 
-    showPlayerModal(playerId, playerName) {
-        const modal = document.getElementById('playerModal');
-        const content = document.getElementById('playerModalContent');
-        
-        content.innerHTML = `
-            <div class="player-modal-header">
-                <h2>${playerName}</h2>
-                <p>Player ID: ${playerId}</p>
-            </div>
-            <div class="player-modal-stats">
-                <div class="loading">
-                    <div class="loading-spinner-small"></div>
-                    <p>Loading player statistics...</p>
+    getFilteredArbOpportunities() {
+        return this.data.arbOpportunities.filter(opp => {
+            if (this.filters.showEVOnly) return false;
+            if (this.filters.hiddenBooks.includes(opp.book1Key) || this.filters.hiddenBooks.includes(opp.book2Key)) return false;
+            if (this.filters.search && !this.matchesSearch(opp)) return false;
+            return true;
+        });
+    }
+
+    matchesSearch(opp) {
+        const searchTerm = this.filters.search.toLowerCase();
+        return opp.homeTeam.toLowerCase().includes(searchTerm) ||
+               opp.awayTeam.toLowerCase().includes(searchTerm) ||
+               (opp.bookmaker && opp.bookmaker.toLowerCase().includes(searchTerm));
+    }
+
+    updateTabCounts() {
+        document.getElementById('evCount').textContent = this.getFilteredEVOpportunities().length;
+        document.getElementById('arbCount').textContent = this.getFilteredArbOpportunities().length;
+        document.getElementById('propsCount').textContent = '2'; // Mock count
+    }
+
+    applyFilters() {
+        this.calculateEVAndArb();
+        this.updateTabCounts();
+        this.renderCurrentTab();
+    }
+
+    showStakeCalculator(arbId) {
+        const arb = this.data.arbOpportunities.find(a => a.id === arbId);
+        if (!arb) return;
+
+        // Populate arb details
+        const detailsContainer = document.getElementById('arbDetails');
+        detailsContainer.innerHTML = `
+            <h4>${arb.homeTeam} vs ${arb.awayTeam}</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+                <div>
+                    <strong>${arb.side1 === 'home' ? arb.homeTeam : arb.awayTeam}</strong><br>
+                    ${arb.odds1 > 0 ? '+' : ''}${arb.odds1} @ ${arb.book1}
                 </div>
+                <div>
+                    <strong>${arb.side2 === 'home' ? arb.homeTeam : arb.awayTeam}</strong><br>
+                    ${arb.odds2 > 0 ? '+' : ''}${arb.odds2} @ ${arb.book2}
+                </div>
+            </div>
+            <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-tertiary); border-radius: 6px;">
+                <strong>Guaranteed Profit: ${arb.profit}%</strong>
             </div>
         `;
+
+        // Store current arb for calculations
+        this.currentArb = arb;
         
+        // Calculate initial stakes
+        this.calculateStakes();
+        
+        this.showModal('stakeCalculatorModal');
+    }
+
+    calculateStakes() {
+        if (!this.currentArb) return;
+
+        const totalBankroll = parseFloat(document.getElementById('totalBankroll').value) || 1000;
+        const targetProfit = parseFloat(document.getElementById('targetProfit').value) || 50;
+
+        const stake1 = totalBankroll * this.currentArb.stake1Ratio;
+        const stake2 = totalBankroll * this.currentArb.stake2Ratio;
+
+        const actualProfit = Math.min(
+            stake1 * (this.currentArb.decimal1 - 1),
+            stake2 * (this.currentArb.decimal2 - 1)
+        );
+
+        const resultsContainer = document.getElementById('stakeResults');
+        resultsContainer.innerHTML = `
+            <h4>Stake Allocation</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1rem;">
+                <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 6px;">
+                    <strong>${this.currentArb.book1}</strong><br>
+                    Stake: $${stake1.toFixed(2)}<br>
+                    <small>${this.currentArb.side1 === 'home' ? this.currentArb.homeTeam : this.currentArb.awayTeam} ${this.currentArb.odds1 > 0 ? '+' : ''}${this.currentArb.odds1}</small>
+                </div>
+                <div style="padding: 1rem; background: var(--bg-tertiary); border-radius: 6px;">
+                    <strong>${this.currentArb.book2}</strong><br>
+                    Stake: $${stake2.toFixed(2)}<br>
+                    <small>${this.currentArb.side2 === 'home' ? this.currentArb.homeTeam : this.currentArb.awayTeam} ${this.currentArb.odds2 > 0 ? '+' : ''}${this.currentArb.odds2}</small>
+                </div>
+            </div>
+            <div style="margin-top: 1rem; padding: 1rem; background: var(--success); color: white; border-radius: 6px; text-align: center;">
+                <strong>Guaranteed Profit: $${actualProfit.toFixed(2)}</strong>
+            </div>
+        `;
+    }
+
+    copyStakesToClipboard() {
+        if (!this.currentArb) return;
+
+        const totalBankroll = parseFloat(document.getElementById('totalBankroll').value) || 1000;
+        const stake1 = totalBankroll * this.currentArb.stake1Ratio;
+        const stake2 = totalBankroll * this.currentArb.stake2Ratio;
+
+        const text = `Arbitrage Stakes:
+${this.currentArb.book1}: $${stake1.toFixed(2)} on ${this.currentArb.side1 === 'home' ? this.currentArb.homeTeam : this.currentArb.awayTeam} ${this.currentArb.odds1 > 0 ? '+' : ''}${this.currentArb.odds1}
+${this.currentArb.book2}: $${stake2.toFixed(2)} on ${this.currentArb.side2 === 'home' ? this.currentArb.homeTeam : this.currentArb.awayTeam} ${this.currentArb.odds2 > 0 ? '+' : ''}${this.currentArb.odds2}`;
+
+        navigator.clipboard.writeText(text).then(() => {
+            this.showToast('Stakes copied to clipboard!');
+        });
+    }
+
+    copyBet(gameId, side, bookmaker, odds) {
+        const game = this.data.odds.find(g => g.id === gameId);
+        if (!game) return;
+
+        const team = side === 'home' ? game.homeTeam : game.awayTeam;
+        const text = `${team} ${odds > 0 ? '+' : ''}${odds} @ ${bookmaker}`;
+
+        navigator.clipboard.writeText(text).then(() => {
+            this.showToast('Bet copied to clipboard!');
+        });
+    }
+
+    showModal(modalId) {
+        const modal = document.getElementById(modalId);
         modal.classList.add('active');
-        
-        // Load player stats
-        this.loadPlayerStats(playerId, content);
     }
 
-    async loadPlayerStats(playerId, container) {
-        try {
-            // Mock player stats for now
-            const mockStats = {
-                season: {
-                    games: 145,
-                    avg: '.285',
-                    hits: 156,
-                    runs: 78,
-                    rbi: 89,
-                    hr: 23
-                }
-            };
-
-            const statsHtml = `
-                <div class="player-modal-header">
-                    <h2>Player Statistics</h2>
-                </div>
-                <div class="player-stats-grid">
-                    <div class="stat-item">
-                        <span class="stat-label">Games</span>
-                        <span class="stat-value">${mockStats.season.games}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">AVG</span>
-                        <span class="stat-value">${mockStats.season.avg}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Hits</span>
-                        <span class="stat-value">${mockStats.season.hits}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Runs</span>
-                        <span class="stat-value">${mockStats.season.runs}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">RBI</span>
-                        <span class="stat-value">${mockStats.season.rbi}</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">HR</span>
-                        <span class="stat-value">${mockStats.season.hr}</span>
-                    </div>
-                </div>
-            `;
-
-            container.innerHTML = statsHtml;
-        } catch (error) {
-            console.error('Failed to load player stats:', error);
-            container.innerHTML = `
-                <div class="error-message">
-                    <h3>Error</h3>
-                    <p>Failed to load player statistics</p>
-                </div>
-            `;
-        }
-    }
-
-    closeModal() {
-        const modal = document.getElementById('playerModal');
+    hideModal(modalId) {
+        const modal = document.getElementById(modalId);
         modal.classList.remove('active');
     }
 
-    // Utility methods
-    formatOdds(americanOdds) {
-        const odds = parseInt(americanOdds);
-        return odds > 0 ? `+${odds}` : `${odds}`;
-    }
-
-    formatMarketName(marketKey) {
-        const names = {
-            'h2h': 'Head to Head',
-            'spreads': 'Point Spreads',
-            'totals': 'Over/Under'
-        };
-        return names[marketKey] || marketKey;
-    }
-
-    showLoading(container) {
-        container.innerHTML = `
-            <div class="loading">
-                <div class="loading-spinner-small"></div>
-                <p>Loading...</p>
-            </div>
+    showToast(message) {
+        // Simple toast notification
+        const toast = document.createElement('div');
+        toast.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: var(--success);
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            z-index: 10000;
+            animation: slideInRight 0.3s ease;
         `;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
     }
 
-    showError(container, message) {
-        container.innerHTML = `
-            <div class="error-message">
-                <i class="fas fa-exclamation-triangle" style="font-size: 2rem; color: var(--error); margin-bottom: 1rem;"></i>
-                <h3>Error</h3>
-                <p>${message}</p>
-            </div>
-        `;
-    }
-
-    showPlaceholder(container, title, message) {
-        container.innerHTML = `
-            <div class="placeholder">
-                <i class="fas fa-info-circle placeholder-icon"></i>
+    getEmptyState(title, message) {
+        return `
+            <div class="empty-state">
+                <i class="fas fa-search"></i>
                 <h3>${title}</h3>
                 <p>${message}</p>
             </div>
         `;
     }
 
-    async fetchWithCache(url, cacheTime = 60000) {
-        const cacheKey = url;
-        const cached = this.cache.get(cacheKey);
-        
-        if (cached && Date.now() - cached.timestamp < cacheTime) {
-            return cached.response;
+    destroy() {
+        if (this.pollInterval) {
+            clearInterval(this.pollInterval);
         }
-        
-        const response = await fetch(`${this.baseURL}${url}`);
-        
-        if (response.ok) {
-            this.cache.set(cacheKey, {
-                response: response.clone(),
-                timestamp: Date.now()
-            });
-        }
-        
-        return response;
     }
 }
+
+// Utility functions for odds calculations
+const OddsUtils = {
+    decimalToAmerican(decimal) {
+        if (decimal >= 2) {
+            return Math.round((decimal - 1) * 100);
+        } else {
+            return Math.round(-100 / (decimal - 1));
+        }
+    },
+
+    americanToDecimal(american) {
+        if (american > 0) {
+            return 1 + american / 100;
+        } else {
+            return 1 + 100 / Math.abs(american);
+        }
+    },
+
+    impliedProbability(decimal) {
+        return 1 / decimal;
+    },
+
+    removeVig(prob1, prob2) {
+        const total = prob1 + prob2;
+        return [prob1 / total, prob2 / total];
+    },
+
+    calculateEV(fairProb, decimal) {
+        const impliedProb = 1 / decimal;
+        return ((fairProb - impliedProb) / impliedProb * 100);
+    },
+
+    detectArbitrage(decimal1, decimal2) {
+        const implied1 = 1 / decimal1;
+        const implied2 = 1 / decimal2;
+        const total = implied1 + implied2;
+        
+        if (total < 1) {
+            return {
+                isArb: true,
+                profit: ((1 - total) / total * 100),
+                stake1Ratio: implied1 / total,
+                stake2Ratio: implied2 / total
+            };
+        }
+        
+        return { isArb: false };
+    }
+};
 
 // Initialize the app
 let edgeFinderPro;
@@ -700,135 +840,9 @@ document.addEventListener('DOMContentLoaded', () => {
     edgeFinderPro = new EdgeFinderPro();
 });
 
-// Add additional CSS for modal stats
-const additionalCSS = `
-.player-modal-header {
-    text-align: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-primary);
-}
-
-.player-modal-header h2 {
-    color: var(--primary);
-    font-size: 1.8rem;
-    margin-bottom: 0.5rem;
-}
-
-.player-stats-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 1rem;
-}
-
-.stat-item {
-    background: var(--bg-tertiary);
-    padding: 1rem;
-    border-radius: var(--radius-md);
-    text-align: center;
-    border: 1px solid var(--border-primary);
-    transition: all var(--transition-normal);
-}
-
-.stat-item:hover {
-    border-color: var(--primary);
-    transform: translateY(-2px);
-}
-
-.stat-label {
-    display: block;
-    font-size: 0.9rem;
-    color: var(--text-secondary);
-    margin-bottom: 0.5rem;
-    font-weight: 500;
-}
-
-.stat-value {
-    display: block;
-    font-size: 1.5rem;
-    font-weight: 700;
-    color: var(--primary);
-}
-
-.error-message {
-    text-align: center;
-    padding: 2rem;
-    color: var(--error);
-}
-
-.error-message h3 {
-    margin-bottom: 0.5rem;
-    font-size: 1.2rem;
-}
-
-.stats-json {
-    background: var(--bg-tertiary);
-    padding: 1rem;
-    border-radius: var(--radius-md);
-    color: var(--text-primary);
-    font-size: 0.9rem;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-wrap: break-word;
-    border: 1px solid var(--border-primary);
-}
-
-.stats-display h3 {
-    color: var(--primary);
-    margin-bottom: 1rem;
-    text-align: center;
-}
-
-.team-header {
-    text-align: center;
-    margin-bottom: 2rem;
-    padding: 2rem;
-    background: var(--bg-card);
-    border-radius: var(--radius-lg);
-    border: 1px solid var(--border-primary);
-}
-
-.team-header h2 {
-    color: var(--primary);
-    font-size: 2rem;
-    margin-bottom: 0.5rem;
-}
-
-.team-header p {
-    color: var(--text-secondary);
-    font-size: 1.1rem;
-}
-
-.ev-results {
-    padding: 2rem;
-}
-
-.ev-header {
-    text-align: center;
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border-primary);
-}
-
-.ev-header h3 {
-    color: var(--primary);
-    font-size: 1.8rem;
-    margin-bottom: 0.5rem;
-}
-
-.market-section {
-    margin-bottom: 2rem;
-}
-
-.market-section h4 {
-    color: var(--secondary);
-    font-size: 1.3rem;
-    margin-bottom: 1rem;
-    text-align: center;
-}
-`;
-
-// Inject additional CSS
-const style = document.createElement('style');
-style.textContent = additionalCSS;
-document.head.appendChild(style);
+// Cleanup on page unload
+window.addEventListener('beforeunload', () => {
+    if (edgeFinderPro) {
+        edgeFinderPro.destroy();
+    }
+});

@@ -1,168 +1,156 @@
-// EdgeFinder Pro Configuration
+// EdgeFinder EV + Arbitrage Configuration
 const EdgeFinderConfig = {
+    // Environment Configuration
+    env: {
+        ODDS_API_KEY: process.env.ODDS_API_KEY || '',
+        PLAYER_API_KEY: process.env.PLAYER_API_KEY || '',
+        BASELINE_BOOK: process.env.BASELINE_BOOK || 'pinnacle',
+        SUPPORT_BOOKS: (process.env.SUPPORT_BOOKS || 'pinnacle,draftkings,fanduel,betmgm,caesars,pointsbet,betrivers').split(','),
+        DEFAULT_SPORTS: (process.env.DEFAULT_SPORTS || 'NFL,NBA,MLB,NHL').split(','),
+        ENABLE_PROPS: process.env.ENABLE_PROPS !== 'false'
+    },
+
     // API Configuration
     api: {
         baseURL: process.env.NODE_ENV === 'production' ? 'https://your-domain.com' : 'http://localhost:3000',
         timeout: 10000,
-        retries: 3
+        retries: 3,
+        pollInterval: 30000 // 30 seconds
     },
 
-    // External API Keys (loaded from environment)
-    keys: {
-        oddsAPI: process.env.ODDS_API_KEY || '',
-        betfairAppKey: process.env.BETFAIR_APP_KEY || '',
-        betfairUsername: process.env.BETFAIR_USERNAME || '',
-        betfairPassword: process.env.BETFAIR_PASSWORD || '',
-        footballDataKey: process.env.FOOTBALL_DATA_KEY || ''
+    // Supported Sportsbooks
+    sportsbooks: {
+        pinnacle: { name: 'Pinnacle', color: '#FFD700', isBaseline: true },
+        draftkings: { name: 'DraftKings', color: '#FF6B35', affiliate: 'dk' },
+        fanduel: { name: 'FanDuel', color: '#1E3A8A', affiliate: 'fd' },
+        betmgm: { name: 'BetMGM', color: '#B8860B', affiliate: 'mgm' },
+        caesars: { name: 'Caesars', color: '#DAA520', affiliate: 'cz' },
+        pointsbet: { name: 'PointsBet', color: '#FF4444', affiliate: 'pb' },
+        betrivers: { name: 'BetRivers', color: '#0066CC', affiliate: 'br' }
     },
 
-    // Supported Leagues
-    leagues: {
-        mlb: {
-            name: 'Major League Baseball',
-            icon: '⚾',
-            oddsKey: 'baseball_mlb',
-            statsAPI: 'https://statsapi.mlb.com/api/v1',
-            seasons: ['2024', '2025']
-        },
-        nba: {
-            name: 'National Basketball Association',
-            icon: '🏀',
-            oddsKey: 'basketball_nba',
-            statsAPI: 'https://stats.nba.com/stats',
-            seasons: ['2023-24', '2024-25']
-        },
-        nfl: {
-            name: 'National Football League',
-            icon: '🏈',
-            oddsKey: 'americanfootball_nfl',
-            statsAPI: null,
-            seasons: ['2024', '2025']
-        },
-        nhl: {
-            name: 'National Hockey League',
-            icon: '🏒',
-            oddsKey: 'icehockey_nhl',
-            statsAPI: 'https://statsapi.web.nhl.com/api/v1',
-            seasons: ['20242025', '20252026']
-        },
-        epl: {
-            name: 'English Premier League',
-            icon: '⚽',
-            oddsKey: 'soccer_epl',
-            statsAPI: 'https://api.football-data.org/v4',
-            seasons: ['2024', '2025']
-        },
-        mls: {
-            name: 'Major League Soccer',
-            icon: '⚽',
-            oddsKey: 'soccer_usa_mls',
-            statsAPI: null,
-            seasons: ['2024', '2025']
-        }
+    // Sports Configuration
+    sports: {
+        NFL: { key: 'americanfootball_nfl', name: 'NFL', icon: '🏈', season: '2024' },
+        NBA: { key: 'basketball_nba', name: 'NBA', icon: '🏀', season: '2024-25' },
+        MLB: { key: 'baseball_mlb', name: 'MLB', icon: '⚾', season: '2024' },
+        NHL: { key: 'icehockey_nhl', name: 'NHL', icon: '🏒', season: '2024-25' }
     },
 
     // Market Types
     markets: {
-        h2h: 'Head to Head',
-        spreads: 'Point Spreads',
-        totals: 'Over/Under',
-        props: 'Player Props'
+        h2h: { name: 'Moneyline', key: 'h2h', twoWay: true },
+        spreads: { name: 'Point Spread', key: 'spreads', twoWay: true },
+        totals: { name: 'Over/Under', key: 'totals', twoWay: true },
+        props: { name: 'Player Props', key: 'props', twoWay: true }
     },
 
-    // De-vig Methods
-    devigMethods: {
-        proportional: 'Proportional',
-        shin: 'Shin Method',
-        power: 'Power Method',
-        additive: 'Additive Method'
-    },
-
-    // Popular Teams (for quick access)
-    popularTeams: {
-        mlb: [
-            { id: 147, name: 'New York Yankees', logo: '⚾' },
-            { id: 119, name: 'Los Angeles Dodgers', logo: '⚾' },
-            { id: 111, name: 'Boston Red Sox', logo: '⚾' },
-            { id: 121, name: 'New York Mets', logo: '⚾' },
-            { id: 117, name: 'Houston Astros', logo: '⚾' },
-            { id: 112, name: 'Chicago Cubs', logo: '⚾' }
-        ],
-        nba: [
-            { id: 1610612747, name: 'Los Angeles Lakers', logo: '🏀' },
-            { id: 1610612738, name: 'Boston Celtics', logo: '🏀' },
-            { id: 1610612744, name: 'Golden State Warriors', logo: '🏀' },
-            { id: 1610612751, name: 'Brooklyn Nets', logo: '🏀' }
-        ],
-        nhl: [
-            { id: 3, name: 'New York Rangers', logo: '🏒' },
-            { id: 6, name: 'Boston Bruins', logo: '🏒' },
-            { id: 26, name: 'Los Angeles Kings', logo: '🏒' },
-            { id: 1, name: 'New Jersey Devils', logo: '🏒' }
-        ]
+    // Default Settings
+    defaults: {
+        baselineBook: 'pinnacle',
+        evThresholdPercent: 2.0,
+        showArbsOnly: false,
+        includeProps: true,
+        hiddenBooks: [],
+        timeWindowHours: 24,
+        currency: 'USD',
+        fractionalOdds: false,
+        minArbPercent: 1.5,
+        maxStake: 1000
     },
 
     // UI Configuration
     ui: {
         theme: 'dark',
         animations: true,
-        autoRefresh: true,
-        refreshInterval: 30000, // 30 seconds
-        cacheTimeout: 60000, // 1 minute
-        loadingDelay: 1500 // Minimum loading screen time
+        virtualizeThreshold: 100,
+        refreshInterval: 30000,
+        tooltipDelay: 500
     },
 
-    // Feature Flags
-    features: {
-        liveOdds: true,
-        playerStats: true,
-        evCalculations: true,
-        betfairIntegration: false,
-        arbitrageDetection: true,
-        pushNotifications: false,
-        darkMode: true,
-        mobileApp: false
-    },
-
-    // Analytics Configuration
-    analytics: {
-        enabled: false,
-        trackingId: '',
-        events: {
-            pageView: true,
-            oddsRequest: true,
-            evCalculation: true,
-            playerView: true
+    // Copy & Messaging
+    copy: {
+        tooltips: {
+            ev: "EV%: Edge vs. fair (no-vig) price from baseline.",
+            baseline: "Baseline: Pinnacle no-vig fair used to compare books.",
+            arb: "Arb: Opposite prices across books create guaranteed profit.",
+            hold: "Hold%: Bookmaker margin; lower = sharper pricing."
+        },
+        explainers: {
+            positiveEV: "Bets with positive expected value vs. fair market price",
+            arbitrage: "Risk-free profit opportunities across different sportsbooks",
+            props: "Player prop bets with value vs. fair market pricing"
         }
     },
 
-    // Error Handling
-    errors: {
-        retryAttempts: 3,
-        retryDelay: 1000,
-        showUserFriendlyMessages: true,
-        logErrors: true
-    },
-
-    // Performance
-    performance: {
-        enableCaching: true,
-        cacheSize: 100,
-        preloadData: false,
-        lazyLoadImages: true,
-        compressionEnabled: true
-    },
-
-    // Security
-    security: {
-        apiKeyEncryption: false,
-        rateLimiting: true,
-        corsEnabled: true,
-        httpsOnly: false
+    // Test Fixtures
+    fixtures: {
+        mlbMoneyline: {
+            id: 'test_mlb_1',
+            sport: 'MLB',
+            commence_time: '2024-04-15T19:10:00Z',
+            home_team: 'New York Yankees',
+            away_team: 'Boston Red Sox',
+            bookmakers: [
+                {
+                    key: 'pinnacle',
+                    title: 'Pinnacle',
+                    markets: [{
+                        key: 'h2h',
+                        outcomes: [
+                            { name: 'New York Yankees', price: 1.95 },
+                            { name: 'Boston Red Sox', price: 1.95 }
+                        ]
+                    }]
+                },
+                {
+                    key: 'draftkings',
+                    title: 'DraftKings',
+                    markets: [{
+                        key: 'h2h',
+                        outcomes: [
+                            { name: 'New York Yankees', price: 1.85 },
+                            { name: 'Boston Red Sox', price: 2.10 }
+                        ]
+                    }]
+                }
+            ]
+        },
+        nbaArb: {
+            id: 'test_nba_1',
+            sport: 'NBA',
+            commence_time: '2024-04-15T20:00:00Z',
+            home_team: 'Los Angeles Lakers',
+            away_team: 'Boston Celtics',
+            bookmakers: [
+                {
+                    key: 'pinnacle',
+                    title: 'Pinnacle',
+                    markets: [{
+                        key: 'h2h',
+                        outcomes: [
+                            { name: 'Los Angeles Lakers', price: 2.20 },
+                            { name: 'Boston Celtics', price: 1.75 }
+                        ]
+                    }]
+                },
+                {
+                    key: 'fanduel',
+                    title: 'FanDuel',
+                    markets: [{
+                        key: 'h2h',
+                        outcomes: [
+                            { name: 'Los Angeles Lakers', price: 2.40 },
+                            { name: 'Boston Celtics', price: 1.65 }
+                        ]
+                    }]
+                }
+            ]
+        }
     }
 };
 
-// Export for Node.js environment
+// Export for Node.js
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = EdgeFinderConfig;
 }

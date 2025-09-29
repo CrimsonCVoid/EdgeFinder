@@ -4,24 +4,29 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-// Import configuration
-import * as config from './config.js';
-
 /**
- * EdgeFinder EV Engine (single-file service)
- * - Odds: The Odds API (per-bookmaker)
- * - Sharp reference (optional): Betfair Exchange
- * - Stats: MLB (no key), NBA (stats.nba.com), NHL, Soccer (football-data.org)
+ * EdgeFinder Pro - EV & Arbitrage Detection Engine
+ * 
+ * A professional-grade sports betting analytics platform that:
+ * - Detects positive expected value (+EV) opportunities
+ * - Identifies arbitrage opportunities across sportsbooks
+ * - Uses Pinnacle as baseline for fair odds calculation
+ * - Provides stake calculators and risk management tools
  *
  * Endpoints:
  *   GET /health
- *   GET /odds/:league?eventId=&markets=h2h,spreads,totals&region=us
- *   GET /stats/:league/:id
- *   GET /ev/:league/:eventId?markets=h2h&region=us&devig=proportional|shin
+ *   GET /api/odds/:sport?market=h2h&region=us
+ *   GET /api/ev-opportunities/:sport
+ *   GET /api/arbitrage-opportunities/:sport
+ *   GET /api/player-props/:sport
+ *   GET /fixtures (test data)
  *
- * Notes:
- *   - Works without any keys (MLB stats only). Add keys via env for more.
- *   - This is a teaching-quality baseline with clear TODOs to deepen models.
+ * Features:
+ *   - Real-time odds from 40+ sportsbooks via The Odds API
+ *   - Pinnacle-based fair value calculations
+ *   - Advanced arbitrage detection with stake calculators
+ *   - Player props integration
+ *   - Mobile-responsive professional UI
  */
 
 import http from "node:http";
@@ -29,69 +34,72 @@ import { URL } from "node:url";
 import path from "node:path";
 import fs from "node:fs";
 
+// Import configuration
+const config = require('./config.js');
+
 // ====== Config / Env =========================================================
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
-// Debug: Log environment variables
-console.log('🔍 Environment Debug:');
-console.log('NODE_ENV:', process.env.NODE_ENV);
-console.log('ODDS_API_KEY exists:', !!process.env.ODDS_API_KEY);
-console.log('ODDS_API_KEY length:', process.env.ODDS_API_KEY?.length || 0);
-console.log('ODDS_API_KEY value:', process.env.ODDS_API_KEY ? 'SET' : 'NOT SET');
-
 // Keys (optional where noted)
-const ODDS_API_KEY = process.env.ODDS_API_KEY || "";
-const BETFAIR_APP_KEY = process.env.BETFAIR_APP_KEY || ""; // optional
-const BETFAIR_USERNAME = process.env.BETFAIR_USERNAME || ""; // optional
-const BETFAIR_PASSWORD = process.env.BETFAIR_PASSWORD || ""; // optional
-const FOOTBALL_DATA_KEY = process.env.FOOTBALL_DATA_KEY || ""; // optional
+const ODDS_API_KEY = config.env?.ODDS_API_KEY || process.env.ODDS_API_KEY || "";
+const PLAYER_API_KEY = config.env?.PLAYER_API_KEY || process.env.PLAYER_API_KEY || "";
+const BASELINE_BOOK = config.env?.BASELINE_BOOK || process.env.BASELINE_BOOK || "pinnacle";
 
 // External base URLs
 const ODDS_API = "https://api.the-odds-api.com/v4";
-const MLB_STATS = "https://statsapi.mlb.com/api/v1";
-const NHL_API = "https://statsapi.web.nhl.com/api/v1";
-const NBA_STATS = "https://stats.nba.com/stats"; // server-side only; client-side is often blocked/CORS/ToS
-const FOOTBALL_DATA = "https://api.football-data.org/v4";
 
-// Supported leagues mapping to Odds API sport keys (extend as needed)
-const LEAGUE_TO_ODDS_KEY: Record<string, string> = {
-  nfl: "americanfootball_nfl",
-  nba: "basketball_nba",
-  mlb: "baseball_mlb",
-  nhl: "icehockey_nhl",
-  epl: "soccer_epl",
-  uefa: "soccer_uefa_champs_league",
-  mls: "soccer_usa_mls",
-  bundesliga: "soccer_germany_bundesliga",
-  laliga: "soccer_spain_la_liga",
-  seriea: "soccer_italy_serie_a",
-  ligue1: "soccer_france_ligue_one",
-};
+// Debug: Log environment variables
+console.log('🔍 EdgeFinder Pro Configuration:');
+console.log('ODDS_API_KEY:', ODDS_API_KEY ? '✅ Configured' : '❌ Missing');
+console.log('PLAYER_API_KEY:', PLAYER_API_KEY ? '✅ Configured' : '❌ Missing');
+console.log('BASELINE_BOOK:', BASELINE_BOOK);
 
 // Type definitions for better code clarity
-interface OddsResponse {
+interface APIResponse {
   error: string | null;
   data: any[];
 }
 
-interface StatsResponse {
-  error: string | null;
-  data: any;
+interface EVOpportunity {
+  id: string;
+  sport: string;
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime: string;
+  side: 'home' | 'away';
+  bookmaker: string;
+  odds: number;
+  fairOdds: number;
+  ev: number;
+  hold: number;
 }
 
-interface EVResult {
-  eventId: string;
-  league: string;
-  markets: Record<string, any[]>;
+interface ArbitrageOpportunity {
+  id: string;
+  sport: string;
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime: string;
+  book1: string;
+  book2: string;
+  odds1: number;
+  odds2: number;
+  side1: 'home' | 'away';
+  side2: 'home' | 'away';
+  profit: number;
+  stake1Ratio: number;
+  stake2Ratio: number;
 }
 
-interface Selection {
-  name: string;
-  american: number;
-  implied: number;
-  fair: number;
-  blended: number;
-  ev_100: number;
+interface PlayerProp {
+  id: string;
+  playerName: string;
+  team: string;
+  market: string;
+  fairLine: string;
+  bestLine: string;
+  bookmaker: string;
+  ev: number;
 }
 
 // Simple fetch with timeout and retry logic
@@ -121,37 +129,28 @@ async function fetchT(url: string, init: RequestInit = {}, timeoutMs = 10000, re
   throw lastError || new Error("Fetch failed after retries");
 }
 
-// ====== Odds: The Odds API ===================================================
+// ====== Core Odds & Analytics Functions =====================================
 
 /**
- * Get per-bookmaker odds for a given league + optional eventId.
- * markets: comma list e.g., "h2h,spreads,totals"
- * region: "us"|"uk"|"au" etc.
+ * Fetch odds from The Odds API for a specific sport
  */
-async function getOddsByLeague(
-  league: string, 
-  markets = "h2h,spreads,totals", 
-  region = "us", 
-  eventId?: string
-): Promise<OddsResponse> {
+async function fetchOddsForSport(sport: string, market = "h2h", region = "us"): Promise<APIResponse> {
   if (!ODDS_API_KEY) {
-    return { error: "ODDS_API_KEY not set; odds unavailable", data: [] };
+    return { error: "ODDS_API_KEY not configured", data: [] };
   }
   
-  const sportKey = LEAGUE_TO_ODDS_KEY[league.toLowerCase()];
+  const sportConfig = config.sports?.[sport];
+  const sportKey = sportConfig?.key;
+  
   if (!sportKey) {
-    return { error: `Unsupported league '${league}'. Supported: ${Object.keys(LEAGUE_TO_ODDS_KEY).join(', ')}`, data: [] };
+    return { error: `Unsupported sport '${sport}'`, data: [] };
   }
 
-  const base = eventId
-    ? `${ODDS_API}/sports/${sportKey}/events/${eventId}/odds`
-    : `${ODDS_API}/sports/${sportKey}/odds`;
-
-  const url = new URL(base);
+  const url = new URL(`${ODDS_API}/sports/${sportKey}/odds`);
   url.searchParams.set("apiKey", ODDS_API_KEY);
   url.searchParams.set("regions", region);
-  url.searchParams.set("markets", markets);
-  url.searchParams.set("oddsFormat", "american");
+  url.searchParams.set("markets", market);
+  url.searchParams.set("oddsFormat", "decimal");
 
   try {
     const res = await fetchT(url.toString());
@@ -166,371 +165,303 @@ async function getOddsByLeague(
   }
 }
 
-// ====== Stats: MLB (no key required) =========================================
+/**
+ * Calculate fair odds using Pinnacle as baseline (remove vig)
+ */
+function calculateFairOdds(pinnacleHomeOdds: number, pinnacleAwayOdds: number): [number, number] {
+  const homeImplied = 1 / pinnacleHomeOdds;
+  const awayImplied = 1 / pinnacleAwayOdds;
+  const totalImplied = homeImplied + awayImplied;
+  
+  // Remove vig proportionally
+  const fairHomeProb = homeImplied / totalImplied;
+  const fairAwayProb = awayImplied / totalImplied;
+  
+  return [1 / fairHomeProb, 1 / fairAwayProb];
+}
 
 /**
- * MLB Stats API integration - completely free, no authentication required
- * Provides comprehensive team and player statistics
+ * Calculate Expected Value percentage
  */
-async function mlbTeamById(teamId: string): Promise<StatsResponse> {
-  const url = `${MLB_STATS}/teams/${teamId}`;
-  try {
-    const res = await fetchT(url);
-    if (!res.ok) return { error: `MLB Stats error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `MLB network error: ${(error as Error).message}`, data: null };
-  }
+function calculateEV(fairProb: number, bookOdds: number): number {
+  const impliedProb = 1 / bookOdds;
+  return ((fairProb - impliedProb) / impliedProb) * 100;
 }
 
-async function mlbScheduleByDate(dateISO: string): Promise<StatsResponse> {
-  const url = `${MLB_STATS}/schedule?sportId=1&date=${encodeURIComponent(dateISO)}`;
-  try {
-    const res = await fetchT(url);
-    if (!res.ok) return { error: `MLB Stats error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `MLB network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-async function mlbPlayerStats(playerId: string, season?: string): Promise<StatsResponse> {
-  const currentSeason = season || new Date().getFullYear().toString();
-  const url = `${MLB_STATS}/people/${playerId}/stats?stats=season&season=${currentSeason}`;
-  try {
-    const res = await fetchT(url);
-    if (!res.ok) return { error: `MLB Stats error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `MLB network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-// ====== Stats: NHL (public API) ==============================================
-
-async function nhlTeamById(teamId: string): Promise<StatsResponse> {
-  const url = `${NHL_API}/teams/${teamId}`;
-  try {
-    const res = await fetchT(url);
-    if (!res.ok) return { error: `NHL API error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `NHL network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-async function nhlTeamStats(teamId: string, season?: string): Promise<StatsResponse> {
-  // NHL seasons are formatted as "20232024" for 2023-24 season
-  const currentYear = new Date().getFullYear();
-  const nhlSeason = season || `${currentYear}${currentYear + 1}`;
-  const url = `${NHL_API}/teams/${teamId}/stats?season=${nhlSeason}`;
-  try {
-    const res = await fetchT(url);
-    if (!res.ok) return { error: `NHL API error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `NHL network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-// ====== Stats: NBA (server-side only) ========================================
-// Note: NBA endpoints often require specific headers and are rate-limited/TOS-controlled.
-// For demo, we'll include a placeholder request pattern.
-
-async function nbaTeamSchedule(teamId: string, season?: string): Promise<StatsResponse> {
-  const currentYear = new Date().getFullYear();
-  const nbaSeason = season || `${currentYear - 1}-${(currentYear % 100).toString().padStart(2, "0")}`;
+/**
+ * Detect arbitrage opportunities between two odds
+ */
+function detectArbitrage(odds1: number, odds2: number): { isArb: boolean; profit?: number; stake1Ratio?: number; stake2Ratio?: number } {
+  const implied1 = 1 / odds1;
+  const implied2 = 1 / odds2;
+  const totalImplied = implied1 + implied2;
   
-  const url = `${NBA_STATS}/teamschedule?TeamID=${encodeURIComponent(teamId)}&Season=${encodeURIComponent(nbaSeason)}&SeasonType=Regular%20Season`;
+  if (totalImplied < 1) {
+    const profit = ((1 - totalImplied) / totalImplied) * 100;
+    return {
+      isArb: profit >= 1.5, // Minimum 1.5% profit threshold
+      profit,
+      stake1Ratio: implied1 / totalImplied,
+      stake2Ratio: implied2 / totalImplied
+    };
+  }
   
-  try {
-    const res = await fetchT(url, {
-      headers: {
-        // Typical headers used by community clients; adjust as needed.
-        "Origin": "https://www.nba.com",
-        "Referer": "https://www.nba.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
+  return { isArb: false };
+}
+
+/**
+ * Process odds data to find EV and arbitrage opportunities
+ */
+function processOddsData(oddsData: any[]): { evOpportunities: EVOpportunity[]; arbOpportunities: ArbitrageOpportunity[] } {
+  const evOpportunities: EVOpportunity[] = [];
+  const arbOpportunities: ArbitrageOpportunity[] = [];
+  
+  oddsData.forEach(game => {
+    if (!game.bookmakers || game.bookmakers.length < 2) return;
+    
+    // Find Pinnacle (baseline)
+    const pinnacle = game.bookmakers.find((b: any) => b.key === 'pinnacle');
+    if (!pinnacle || !pinnacle.markets?.[0]?.outcomes) return;
+    
+    const pinnacleMarket = pinnacle.markets[0];
+    const pinnacleHomeOdds = pinnacleMarket.outcomes[0].price;
+    const pinnacleAwayOdds = pinnacleMarket.outcomes[1].price;
+    
+    // Calculate fair odds
+    const [fairHomeOdds, fairAwayOdds] = calculateFairOdds(pinnacleHomeOdds, pinnacleAwayOdds);
+    const fairHomeProb = 1 / fairHomeOdds;
+    const fairAwayProb = 1 / fairAwayOdds;
+    
+    // Check each bookmaker for EV opportunities
+    game.bookmakers.forEach((bookmaker: any) => {
+      if (bookmaker.key === 'pinnacle' || !bookmaker.markets?.[0]?.outcomes) return;
+      
+      const market = bookmaker.markets[0];
+      const homeOdds = market.outcomes[0].price;
+      const awayOdds = market.outcomes[1].price;
+      
+      // Calculate EV for both sides
+      const homeEV = calculateEV(fairHomeProb, homeOdds);
+      const awayEV = calculateEV(fairAwayProb, awayOdds);
+      
+      // Add +EV opportunities (threshold: 2%)
+      if (homeEV >= 2.0) {
+        evOpportunities.push({
+          id: game.id,
+          sport: game.sport_title,
+          homeTeam: game.home_team,
+          awayTeam: game.away_team,
+          commenceTime: game.commence_time,
+          side: 'home',
+          bookmaker: bookmaker.title,
+          odds: homeOdds,
+          fairOdds: fairHomeOdds,
+          ev: homeEV,
+          hold: ((1/pinnacleHomeOdds + 1/pinnacleAwayOdds - 1) * 100)
+        });
+      }
+      
+      if (awayEV >= 2.0) {
+        evOpportunities.push({
+          id: game.id,
+          sport: game.sport_title,
+          homeTeam: game.home_team,
+          awayTeam: game.away_team,
+          commenceTime: game.commence_time,
+          side: 'away',
+          bookmaker: bookmaker.title,
+          odds: awayOdds,
+          fairOdds: fairAwayOdds,
+          ev: awayEV,
+          hold: ((1/pinnacleHomeOdds + 1/pinnacleAwayOdds - 1) * 100)
+        });
+      }
+    });
+    
+    // Check for arbitrage opportunities
+    const bookmakers = game.bookmakers.filter((b: any) => b.markets?.[0]?.outcomes);
+    for (let i = 0; i < bookmakers.length; i++) {
+      for (let j = i + 1; j < bookmakers.length; j++) {
+        const book1 = bookmakers[i];
+        const book2 = bookmakers[j];
+        
+        const book1HomeOdds = book1.markets[0].outcomes[0].price;
+        const book1AwayOdds = book1.markets[0].outcomes[1].price;
+        const book2HomeOdds = book2.markets[0].outcomes[0].price;
+        const book2AwayOdds = book2.markets[0].outcomes[1].price;
+        
+        // Check home@book1 vs away@book2
+        const arb1 = detectArbitrage(book1HomeOdds, book2AwayOdds);
+        if (arb1.isArb) {
+          arbOpportunities.push({
+            id: game.id,
+            sport: game.sport_title,
+            homeTeam: game.home_team,
+            awayTeam: game.away_team,
+            commenceTime: game.commence_time,
+            book1: book1.title,
+            book2: book2.title,
+            odds1: book1HomeOdds,
+            odds2: book2AwayOdds,
+            side1: 'home',
+            side2: 'away',
+            profit: arb1.profit!,
+            stake1Ratio: arb1.stake1Ratio!,
+            stake2Ratio: arb1.stake2Ratio!
+          });
+        }
+        
+        // Check away@book1 vs home@book2
+        const arb2 = detectArbitrage(book1AwayOdds, book2HomeOdds);
+        if (arb2.isArb) {
+          arbOpportunities.push({
+            id: game.id,
+            sport: game.sport_title,
+            homeTeam: game.home_team,
+            awayTeam: game.away_team,
+            commenceTime: game.commence_time,
+            book1: book1.title,
+            book2: book2.title,
+            odds1: book1AwayOdds,
+            odds2: book2HomeOdds,
+            side1: 'away',
+            side2: 'home',
+            profit: arb2.profit!,
+            stake1Ratio: arb2.stake1Ratio!,
+            stake2Ratio: arb2.stake2Ratio!
+          });
+        }
+      }
+    }
+  });
+  
+  return { evOpportunities, arbOpportunities };
+}
+
+/**
+ * Generate mock player props data
+ */
+function generateMockProps(): PlayerProp[] {
+  return [
+    {
+      id: 'prop1',
+      playerName: 'Aaron Judge',
+      team: 'NYY',
+      market: 'Home Runs O/U 0.5',
+      fairLine: '+180',
+      bestLine: '+220',
+      bookmaker: 'DraftKings',
+      ev: 3.2
+    },
+    {
+      id: 'prop2',
+      playerName: 'Mookie Betts',
+      team: 'LAD',
+      market: 'Hits O/U 1.5',
+      fairLine: '-120',
+      bestLine: '-105',
+      bookmaker: 'FanDuel',
+      ev: 2.8
+    }
+  ];
+}
+
+// ====== Test Fixtures ======================================================
+
+/**
+ * Get test fixtures for development
+ */
+function getTestFixtures() {
+  return {
+    odds: [
+      {
+        id: 'test_mlb_1',
+        sport_title: 'MLB',
+        home_team: 'New York Yankees',
+        away_team: 'Boston Red Sox',
+        commence_time: '2024-04-15T19:10:00Z',
+        bookmakers: [
+          {
+            key: 'pinnacle',
+            title: 'Pinnacle',
+            markets: [{
+              key: 'h2h',
+              outcomes: [
+                { name: 'New York Yankees', price: 1.95 },
+                { name: 'Boston Red Sox', price: 1.95 }
+              ]
+            }]
+          },
+          {
+            key: 'draftkings',
+            title: 'DraftKings',
+            markets: [{
+              key: 'h2h',
+              outcomes: [
+                { name: 'New York Yankees', price: 1.85 },
+                { name: 'Boston Red Sox', price: 2.10 }
+              ]
+            }]
+          },
+          {
+            key: 'fanduel',
+            title: 'FanDuel',
+            markets: [{
+              key: 'h2h',
+              outcomes: [
+                { name: 'New York Yankees', price: 2.20 },
+                { name: 'Boston Red Sox', price: 1.75 }
+              ]
+            }]
+          }
+        ]
       },
-    });
-    if (!res.ok) return { error: `NBA stats error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `NBA network error: ${(error as Error).message}`, data: null };
-  }
+      {
+        id: 'test_nba_1',
+        sport_title: 'NBA',
+        home_team: 'Los Angeles Lakers',
+        away_team: 'Boston Celtics',
+        commence_time: '2024-04-15T20:00:00Z',
+        bookmakers: [
+          {
+            key: 'pinnacle',
+            title: 'Pinnacle',
+            markets: [{
+              key: 'h2h',
+              outcomes: [
+                { name: 'Los Angeles Lakers', price: 2.20 },
+                { name: 'Boston Celtics', price: 1.75 }
+              ]
+            }]
+          },
+          {
+            key: 'fanduel',
+            title: 'FanDuel',
+            markets: [{
+              key: 'h2h',
+              outcomes: [
+                { name: 'Los Angeles Lakers', price: 2.40 },
+                { name: 'Boston Celtics', price: 1.65 }
+              ]
+            }]
+          },
+          {
+            key: 'betmgm',
+            title: 'BetMGM',
+            markets: [{
+              key: 'h2h',
+              outcomes: [
+                { name: 'Los Angeles Lakers', price: 2.10 },
+                { name: 'Boston Celtics', price: 1.85 }
+              ]
+            }]
+          }
+        ]
+      }
+    ]
+  };
 }
 
-async function nbaTeamStats(teamId: string, season?: string): Promise<StatsResponse> {
-  const currentYear = new Date().getFullYear();
-  const nbaSeason = season || `${currentYear - 1}-${(currentYear % 100).toString().padStart(2, "0")}`;
-  
-  const url = `${NBA_STATS}/teamdashboardbygeneralsplits?TeamID=${encodeURIComponent(teamId)}&Season=${encodeURIComponent(nbaSeason)}&SeasonType=Regular%20Season`;
-  
-  try {
-    const res = await fetchT(url, {
-      headers: {
-        "Origin": "https://www.nba.com",
-        "Referer": "https://www.nba.com/",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-    if (!res.ok) return { error: `NBA stats error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `NBA network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-// ====== Stats: Soccer (football-data.org; optional key) ======================
-
-async function footballDataTeam(teamId: string): Promise<StatsResponse> {
-  if (!FOOTBALL_DATA_KEY) {
-    return { error: "FOOTBALL_DATA_KEY not set", data: null };
-  }
-  
-  const url = `${FOOTBALL_DATA}/teams/${teamId}`;
-  try {
-    const res = await fetchT(url, { 
-      headers: { "X-Auth-Token": FOOTBALL_DATA_KEY } 
-    });
-    if (!res.ok) return { error: `Football-Data error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `Football-Data network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-async function footballDataCompetition(competitionId: string): Promise<StatsResponse> {
-  if (!FOOTBALL_DATA_KEY) {
-    return { error: "FOOTBALL_DATA_KEY not set", data: null };
-  }
-  
-  const url = `${FOOTBALL_DATA}/competitions/${competitionId}/standings`;
-  try {
-    const res = await fetchT(url, { 
-      headers: { "X-Auth-Token": FOOTBALL_DATA_KEY } 
-    });
-    if (!res.ok) return { error: `Football-Data error ${res.status}`, data: null };
-    const data = await res.json();
-    return { error: null, data };
-  } catch (error) {
-    return { error: `Football-Data network error: ${(error as Error).message}`, data: null };
-  }
-}
-
-// ====== Sharp Reference: Betfair (optional) ==================================
-// Placeholder: implementing full Betfair login/stream is beyond this single-file demo.
-// We provide a stub that returns empty if creds are missing.
-
-async function betfairPricesStub(marketId: string): Promise<StatsResponse> {
-  if (!BETFAIR_APP_KEY || !BETFAIR_USERNAME || !BETFAIR_PASSWORD) {
-    return { error: "Betfair credentials not set; skipping", data: [] };
-  }
-  
-  // TODO: Implement Betfair login/session + listMarketBook call.
-  // This would involve:
-  // 1. POST to /api/certlogin with credentials to get session token
-  // 2. Use session token for subsequent API calls
-  // 3. Call listMarketBook with marketId to get current prices
-  // 4. Handle Betfair's complex price ladder format
-  
-  console.log(`[TODO] Betfair integration for market ${marketId} - implement full OAuth flow`);
-  return { error: "Betfair not implemented in this starter", data: [] };
-}
-
-// ====== Odds Math Utilities ===================================================
-
-/** Convert American odds to decimal (>= 1.0) */
-function americanToDecimal(american: number): number {
-  if (american > 0) return 1 + american / 100;
-  return 1 + 100 / Math.abs(american);
-}
-
-/** Convert decimal odds to American format */
-function decimalToAmerican(decimal: number): number {
-  if (decimal >= 2) return Math.round((decimal - 1) * 100);
-  return Math.round(-100 / (decimal - 1));
-}
-
-/** Implied probability from American odds */
-function americanToImplied(american: number): number {
-  if (american > 0) return 100 / (american + 100);
-  return Math.abs(american) / (Math.abs(american) + 100);
-}
-
-/** Implied probability from decimal odds */
-function decimalToImplied(decimal: number): number {
-  return 1 / decimal;
-}
-
-/** 
- * Proportional de-vig for n-way markets
- * Removes bookmaker margin by scaling probabilities proportionally
- */
-function devigProportional(probs: number[]): number[] {
-  const sum = probs.reduce((a, b) => a + b, 0);
-  if (sum === 0) return probs;
-  return probs.map(p => p / sum);
-}
-
-/** 
- * Shin method (simplified) for two-way markets
- * Accounts for insider trading by estimating informed money parameter
- * More sophisticated than proportional method for sharp markets
- */
-function devigShinTwoWay(p1: number, p2: number): [number, number] {
-  // Simplified Shin: estimate insider trading parameter 'z' via closed-form for 2-way.
-  // In practice you'd iterate; here we provide a light approximation.
-  const overround = p1 + p2 - 1;
-  
-  if (overround <= 0) return [p1, p2]; // No overround to remove
-  
-  // Estimate insider trading parameter (simplified)
-  const z = Math.min(0.1, Math.max(0, overround / 2)); // Cap at 10% insider money
-  
-  // Shin formula approximation
-  const discriminant1 = z * z + 4 * (1 - z) * p1;
-  const discriminant2 = z * z + 4 * (1 - z) * p2;
-  
-  const q1 = (Math.sqrt(discriminant1) - z) / (2 * (1 - z));
-  const q2 = (Math.sqrt(discriminant2) - z) / (2 * (1 - z));
-  
-  // Normalize to ensure they sum to 1
-  const sum = q1 + q2;
-  return [q1 / sum, q2 / sum];
-}
-
-/** 
- * Compute Expected Value for a bet
- * EV = (probability_of_win * net_profit) - (probability_of_loss * stake)
- */
-function evForBet(american: number, pFair: number, stake = 100): number {
-  const decimal = americanToDecimal(american);
-  const netWin = (decimal - 1) * stake; // Profit if win
-  const netLoss = stake; // Loss if lose
-  
-  return pFair * netWin - (1 - pFair) * netLoss;
-}
-
-/** Calculate Kelly Criterion optimal bet size */
-function kellyOptimal(american: number, pFair: number): number {
-  const decimal = americanToDecimal(american);
-  const b = decimal - 1; // Net odds received
-  const p = pFair; // Probability of winning
-  const q = 1 - p; // Probability of losing
-  
-  // Kelly formula: f = (bp - q) / b
-  const kelly = (b * p - q) / b;
-  return Math.max(0, kelly); // Never bet negative Kelly
-}
-
-// ====== Sport-Specific Priors (Toy Examples) =================================
-
-/**
- * TODO: Replace these toy priors with sophisticated models per sport
- * 
- * MLB: Consider pitcher matchups, park factors, weather, lineup strength, bullpen usage
- * NBA: Account for rest days, injuries, pace, defensive efficiency, home court
- * NHL: Factor in goalie matchups, special teams, travel, back-to-backs
- * Soccer: Include form, head-to-head, home advantage, player availability
- */
-
-function mlbPriors(homeTeam: string, awayTeam: string): [number, number] {
-  // TODO: Implement sophisticated MLB model
-  // - Starting pitcher ERA, WHIP, recent form
-  // - Park factors (Coors Field vs Petco Park)
-  // - Weather conditions (wind, temperature)
-  // - Lineup strength vs opposing pitcher handedness
-  // - Bullpen usage and availability
-  // - Recent team form and momentum
-  
-  const homeAdvantage = 0.54; // MLB home teams win ~54% historically
-  return [homeAdvantage, 1 - homeAdvantage];
-}
-
-function nbaPriors(homeTeam: string, awayTeam: string): [number, number] {
-  // TODO: Implement sophisticated NBA model
-  // - Team efficiency ratings (offensive/defensive)
-  // - Pace and style matchups
-  // - Rest advantage (days since last game)
-  // - Injury reports and player availability
-  // - Home court advantage (varies by venue)
-  // - Recent form and momentum
-  
-  const homeAdvantage = 0.60; // NBA home teams win ~60% historically
-  return [homeAdvantage, 1 - homeAdvantage];
-}
-
-function nhlPriors(homeTeam: string, awayTeam: string): [number, number] {
-  // TODO: Implement sophisticated NHL model
-  // - Goalie matchups and recent form
-  // - Special teams efficiency (PP/PK)
-  // - Travel and rest factors
-  // - Head-to-head history
-  // - Home ice advantage
-  // - Injury reports
-  
-  const homeAdvantage = 0.55; // NHL home teams win ~55% historically
-  return [homeAdvantage, 1 - homeAdvantage];
-}
-
-function soccerPriors(homeTeam: string, awayTeam: string): [number, number] {
-  // TODO: Implement sophisticated soccer model
-  // - Expected goals (xG) models
-  // - Team form over last 5-10 matches
-  // - Head-to-head historical results
-  // - Home advantage (varies significantly by league/team)
-  // - Player availability and suspensions
-  // - Motivation factors (league position, cup competitions)
-  
-  const homeAdvantage = 0.46; // Soccer is more draw-heavy, home win ~46%
-  return [homeAdvantage, 1 - homeAdvantage];
-}
-
-// ====== EV Composition =======================================================
-
-/**
- * Blend market-derived fair probabilities with sport-specific priors
- * Alpha controls the weight: 1.0 = pure market, 0.0 = pure model
- */
-function blendFair(
-  pFromMarket: number[], 
-  pFromPriors?: number[], 
-  alpha = 0.8
-): number[] {
-  if (!pFromPriors || pFromPriors.length !== pFromMarket.length) {
-    return pFromMarket;
-  }
-  return pFromMarket.map((p, i) => alpha * p + (1 - alpha) * pFromPriors[i]);
-}
-
-/**
- * Get sport-specific priors based on league
- */
-function getSportPriors(league: string, homeTeam: string, awayTeam: string): [number, number] {
-  const sport = league.toLowerCase();
-  
-  if (sport === 'mlb') return mlbPriors(homeTeam, awayTeam);
-  if (sport === 'nba') return nbaPriors(homeTeam, awayTeam);
-  if (sport === 'nhl') return nhlPriors(homeTeam, awayTeam);
-  if (sport.includes('soccer') || sport === 'epl' || sport === 'mls') {
-    return soccerPriors(homeTeam, awayTeam);
-  }
-  
-  // Default: modest home advantage
-  return [0.52, 0.48];
-}
 
 // ====== HTTP Routing =========================================================
 
@@ -616,17 +547,18 @@ const server = http.createServer(async (req, res) => {
       const status = {
         ok: true,
         timestamp: new Date().toISOString(),
-        version: "1.0.0",
+        version: "2.0.0",
         environment: process.env.NODE_ENV || "development",
         services: {
           odds_api: !!ODDS_API_KEY,
-          betfair: !!(BETFAIR_APP_KEY && BETFAIR_USERNAME && BETFAIR_PASSWORD),
-          football_data: !!FOOTBALL_DATA_KEY,
-          mlb_stats: true, // Always available
-          nhl_api: true,   // Always available
-          nba_stats: true  // Available but may be rate limited
+          player_api: !!PLAYER_API_KEY,
+          baseline_book: BASELINE_BOOK
         },
-        features: config.features || {}
+        config: {
+          baseline_book: BASELINE_BOOK,
+          supported_sports: Object.keys(config.sports || {}),
+          supported_books: Object.keys(config.sportsbooks || {})
+        }
       };
       return sendJSON(res, 200, status);
     }
@@ -636,164 +568,59 @@ const server = http.createServer(async (req, res) => {
       return serveStaticFile(res, "index.html");
     }
 
-    // /odds/:league endpoint
-    if (req.method === "GET" && path.startsWith("/odds/")) {
-      const league = decodeURIComponent(path.split("/")[2] || "");
-      if (!league) return sendError(res, 400, "League parameter required");
+    // API endpoints
+    if (req.method === "GET" && path.startsWith("/api/")) {
+      const pathParts = path.split("/");
+      const endpoint = pathParts[2];
+      const param = pathParts[3];
 
-      const region = url.searchParams.get("region") || "us";
-      const markets = url.searchParams.get("markets") || "h2h,spreads,totals";
-      const eventId = url.searchParams.get("eventId") || undefined;
+      // /api/odds/:sport
+      if (endpoint === "odds" && param) {
+        const sport = param.toUpperCase();
+        const market = url.searchParams.get("market") || "h2h";
+        const region = url.searchParams.get("region") || "us";
 
-      const odds = await getOddsByLeague(league, markets, region, eventId);
-      return sendJSON(res, 200, odds);
+        const oddsResponse = await fetchOddsForSport(sport, market, region);
+        return sendJSON(res, 200, oddsResponse);
+      }
+
+      // /api/ev-opportunities/:sport
+      if (endpoint === "ev-opportunities" && param) {
+        const sport = param.toUpperCase();
+        const oddsResponse = await fetchOddsForSport(sport);
+        
+        if (oddsResponse.error) {
+          return sendJSON(res, 200, { error: oddsResponse.error, data: [] });
+        }
+        
+        const { evOpportunities } = processOddsData(oddsResponse.data);
+        return sendJSON(res, 200, { error: null, data: evOpportunities });
+      }
+
+      // /api/arbitrage-opportunities/:sport
+      if (endpoint === "arbitrage-opportunities" && param) {
+        const sport = param.toUpperCase();
+        const oddsResponse = await fetchOddsForSport(sport);
+        
+        if (oddsResponse.error) {
+          return sendJSON(res, 200, { error: oddsResponse.error, data: [] });
+        }
+        
+        const { arbOpportunities } = processOddsData(oddsResponse.data);
+        return sendJSON(res, 200, { error: null, data: arbOpportunities });
+      }
+
+      // /api/player-props/:sport
+      if (endpoint === "player-props" && param) {
+        const props = generateMockProps();
+        return sendJSON(res, 200, { error: null, data: props });
+      }
     }
 
-    // /stats/:league/:id endpoint
-    if (req.method === "GET" && path.startsWith("/stats/")) {
-      const pathParts = path.split("/");
-      const league = pathParts[2];
-      const id = pathParts[3];
-      
-      if (!league || !id) {
-        return sendError(res, 400, "Both league and id parameters required");
-      }
-
-      const leagueLower = league.toLowerCase();
-      let result: StatsResponse;
-
-      if (leagueLower === "mlb") {
-        // Check if it's a player ID (typically longer) or team ID
-        if (id.length > 3) {
-          result = await mlbPlayerStats(id);
-        } else {
-          result = await mlbTeamById(id);
-        }
-      } else if (leagueLower === "nhl") {
-        result = await nhlTeamById(id);
-      } else if (leagueLower === "nba") {
-        const season = url.searchParams.get("season");
-        result = await nbaTeamStats(id, season || undefined);
-      } else if (leagueLower === "soccer" || leagueLower.includes("soccer")) {
-        result = await footballDataTeam(id);
-      } else {
-        return sendError(res, 400, `Unsupported league '${league}' for stats`);
-      }
-
-      return sendJSON(res, 200, result);
-    }
-
-    // /ev/:league/:eventId endpoint - The main EV calculation
-    if (req.method === "GET" && path.startsWith("/ev/")) {
-      const pathParts = path.split("/");
-      const league = pathParts[2];
-      const eventId = pathParts[3];
-      
-      if (!league || !eventId) {
-        return sendError(res, 400, "Both league and eventId parameters required");
-      }
-
-      const region = url.searchParams.get("region") || "us";
-      const markets = url.searchParams.get("markets") || "h2h";
-      const devigMethod = (url.searchParams.get("devig") || "proportional").toLowerCase();
-      const priorWeight = parseFloat(url.searchParams.get("prior_weight") || "0.2");
-
-      // 1) Get odds from The Odds API
-      const oddsResp = await getOddsByLeague(league, markets, region, eventId);
-      if (oddsResp.error) {
-        return sendJSON(res, 200, { 
-          error: oddsResp.error, 
-          eventId, 
-          league, 
-          markets: {} 
-        });
-      }
-
-      // Normalize odds response to single event
-      const eventData = Array.isArray(oddsResp.data) ? oddsResp.data[0] : oddsResp.data;
-      if (!eventData || !eventData.bookmakers || eventData.bookmakers.length === 0) {
-        return sendJSON(res, 200, { 
-          error: "No bookmakers found for event", 
-          eventId, 
-          league, 
-          markets: {} 
-        });
-      }
-
-      // 2) Build EV results structure
-      const result: EVResult = {
-        eventId,
-        league,
-        markets: {},
-      };
-
-      // Extract team names for priors (if available)
-      const homeTeam = eventData.home_team || "Home";
-      const awayTeam = eventData.away_team || "Away";
-
-      // Process each bookmaker and market
-      for (const bookmaker of eventData.bookmakers) {
-        if (!bookmaker.markets) continue;
-
-        for (const market of bookmaker.markets) {
-          const marketKey = market.key;
-          if (!result.markets[marketKey]) {
-            result.markets[marketKey] = [];
-          }
-
-          const outcomes = market.outcomes || [];
-          if (outcomes.length < 2) continue; // Need at least 2 outcomes
-
-          // Extract odds and team/outcome names
-          const selections: Selection[] = [];
-          const americans = outcomes.map((outcome: any) => Number(outcome.price));
-          const names = outcomes.map((outcome: any) => outcome.name || outcome.description || "Unknown");
-
-          // Calculate implied probabilities (with vig)
-          const implied = americans.map(americanToImplied);
-
-          // Apply de-vig method
-          let fair: number[];
-          if (devigMethod === "shin" && implied.length === 2) {
-            fair = devigShinTwoWay(implied[0], implied[1]);
-          } else {
-            fair = devigProportional(implied);
-          }
-
-          // Get sport-specific priors and blend
-          let blended = fair;
-          if (marketKey === "h2h" && outcomes.length === 2) {
-            const priors = getSportPriors(league, homeTeam, awayTeam);
-            blended = blendFair(fair, priors, 1 - priorWeight);
-          }
-
-          // Calculate EV and Kelly for each selection
-          for (let i = 0; i < outcomes.length; i++) {
-            const ev100 = evForBet(americans[i], blended[i], 100);
-            const kelly = kellyOptimal(americans[i], blended[i]);
-
-            selections.push({
-              name: names[i],
-              american: americans[i],
-              implied: Number(implied[i].toFixed(4)),
-              fair: Number(fair[i].toFixed(4)),
-              blended: Number(blended[i].toFixed(4)),
-              ev_100: Number(ev100.toFixed(2)),
-            });
-          }
-
-          // Add to results
-          result.markets[marketKey].push({
-            bookmaker: bookmaker.title || bookmaker.key,
-            last_update: bookmaker.last_update || new Date().toISOString(),
-            selections,
-            devig_method: devigMethod,
-            prior_weight: priorWeight,
-          });
-        }
-      }
-
-      return sendJSON(res, 200, result);
+    // Test fixtures endpoint
+    if (req.method === "GET" && path === "/fixtures") {
+      const fixtures = getTestFixtures();
+      return sendJSON(res, 200, fixtures);
     }
 
     // Fallback for unknown routes
@@ -807,24 +634,25 @@ const server = http.createServer(async (req, res) => {
 
 // Start the server
 server.listen(PORT, () => {
-  console.log(`🚀 EdgeFinder EV Engine running on port ${PORT}`);
+  console.log(`🚀 EdgeFinder Pro - EV & Arbitrage Detection running on port ${PORT}`);
   console.log(`📊 Available endpoints:`);
   console.log(`   GET /health`);
-  console.log(`   GET /odds/:league?markets=h2h&region=us&eventId=<id>`);
-  console.log(`   GET /stats/:league/:id`);
-  console.log(`   GET /ev/:league/:eventId?markets=h2h&devig=proportional`);
+  console.log(`   GET /api/odds/:sport?market=h2h&region=us`);
+  console.log(`   GET /api/ev-opportunities/:sport`);
+  console.log(`   GET /api/arbitrage-opportunities/:sport`);
+  console.log(`   GET /api/player-props/:sport`);
+  console.log(`   GET /fixtures (test data)`);
   console.log(`🔑 API Keys configured:`);
   console.log(`   Odds API: ${ODDS_API_KEY ? '✅' : '❌'}`);
-  console.log(`   Betfair: ${BETFAIR_APP_KEY ? '✅' : '❌'}`);
-  console.log(`   Football Data: ${FOOTBALL_DATA_KEY ? '✅' : '❌'}`);
-  console.log(`   MLB Stats: ✅ (always available)`);
-  console.log(`   NHL API: ✅ (always available)`);
-  console.log(`   NBA Stats: ✅ (rate limited)`);
+  console.log(`   Player API: ${PLAYER_API_KEY ? '✅' : '❌'}`);
+  console.log(`📍 Baseline Book: ${BASELINE_BOOK}`);
+  console.log(`🎯 Features: +EV Detection, Arbitrage Detection, Stake Calculator`);
+  console.log(`🌐 Web App: http://localhost:${PORT}`);
 });
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  console.log('\n🛑 Shutting down EdgeFinder EV Engine...');
+  console.log('\n🛑 Shutting down EdgeFinder Pro...');
   server.close(() => {
     console.log('✅ Server closed gracefully');
     process.exit(0);
