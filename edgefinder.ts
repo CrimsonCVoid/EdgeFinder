@@ -23,6 +23,13 @@ import fs from "node:fs";
 // ====== Config / Env =========================================================
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 
+// Debug: Log environment variables
+console.log('🔍 Environment Debug:');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('ODDS_API_KEY exists:', !!process.env.ODDS_API_KEY);
+console.log('ODDS_API_KEY length:', process.env.ODDS_API_KEY?.length || 0);
+console.log('ODDS_API_KEY value:', process.env.ODDS_API_KEY ? 'SET' : 'NOT SET');
+
 // Keys (optional where noted)
 const ODDS_API_KEY = process.env.ODDS_API_KEY || "";
 const BETFAIR_APP_KEY = process.env.BETFAIR_APP_KEY || ""; // optional
