@@ -1,0 +1,32 @@
+{
+  "name": "edgefinder-ev-engine",
+  "version": "1.0.0",
+  "description": "Multi-sport Expected Value engine for sports betting",
+  "main": "edgefinder.ts",
+  "scripts": {
+    "start": "node --loader ts-node/esm edgefinder.ts",
+    "dev": "node --loader ts-node/esm --watch edgefinder.ts",
+    "build": "tsc edgefinder.ts --outDir dist --target es2022 --module node16 --moduleResolution node16",
+    "test": "echo \"No tests yet\" && exit 0"
+  },
+  "keywords": [
+    "sports-betting",
+    "expected-value",
+    "odds",
+    "arbitrage",
+    "mlb",
+    "nba",
+    "nhl",
+    "soccer"
+  ],
+  "author": "EdgeFinder",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
