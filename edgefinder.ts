@@ -99,15 +99,35 @@ interface ArbitrageOpportunity {
   stake2Ratio: number;
 }
 
-interface PlayerProp {
-  id: string;
-  playerName: string;
-  team: string;
-  market: string;
-  fairLine: string;
-  bestLine: string;
+interface BookmakerPropOdds {
   bookmaker: string;
-  ev: number;
+  over: number;
+  under: number;
+  line: number;
+}
+
+interface PlayerMarketProp {
+  market: string;
+  line: number;
+  fairOver: number;
+  fairUnder: number;
+  bookmakers: BookmakerPropOdds[];
+}
+
+interface PlayerRecentForm {
+  date: string;
+  opponent: string;
+  value: number;
+}
+
+interface PlayerData {
+  id: string;
+  name: string;
+  team: string;
+  position: string;
+  headshot: string;
+  recentForm: PlayerRecentForm[];
+  props: PlayerMarketProp[];
 }
 
 interface MovementPoint {
@@ -357,29 +377,9 @@ function processOddsData(oddsData: any[]): { evOpportunities: EVOpportunity[]; a
 /**
  * Generate mock player props data
  */
-function generateMockProps(): PlayerProp[] {
-  return [
-    {
-      id: 'prop1',
-      playerName: 'Aaron Judge',
-      team: 'NYY',
-      market: 'Home Runs O/U 0.5',
-      fairLine: '+180',
-      bestLine: '+220',
-      bookmaker: 'DraftKings',
-      ev: 3.2
-    },
-    {
-      id: 'prop2',
-      playerName: 'Mookie Betts',
-      team: 'LAD',
-      market: 'Hits O/U 1.5',
-      fairLine: '-120',
-      bestLine: '-105',
-      bookmaker: 'FanDuel',
-      ev: 2.8
-    }
-  ];
+function generateMockProps(): { players: PlayerData[] } {
+  const fixtures = getTestFixtures();
+  return fixtures.props_sample || { players: [] };
 }
 
 // ====== Test Fixtures ======================================================
