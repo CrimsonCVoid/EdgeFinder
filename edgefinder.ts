@@ -1,4 +1,10 @@
 /**
+ * Load environment variables from .env file
+ */
+import dotenv from 'dotenv';
+dotenv.config();
+
+/**
  * EdgeFinder EV Engine (single-file service)
  * - Odds: The Odds API (per-bookmaker)
  * - Sharp reference (optional): Betfair Exchange
